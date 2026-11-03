@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Clicky.Windows</RootNamespace>
+    <AssemblyName>Clicky</AssemblyName>
+
+    <!-- WPF draws the panel and overlay. WinForms is only used for NotifyIcon
+         (WPF has no tray icon), so keep its implicit usings off to avoid
+         System.Windows.Forms types shadowing their WPF namesakes. -->
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <!-- PerMonitorV2 DPI awareness lives in the manifest so every Win32 API
+         we call reports physical pixels. See PORTING-PLAN.md "Coordinates". -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- WFAC010 is a WinForms-only analyzer suggesting Application.SetHighDpiMode. This is a
+         WPF app, where the manifest is the correct place to declare DPI awareness. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+
+  <!-- Single-file, self-contained publish: `dotnet publish -c Release` → one Clicky.exe.
+       Only applied while publishing, so the (framework-dependent) test project can
+       still reference this project for normal builds. -->
+  <PropertyGroup Condition="'$(_IsPublishing)' == 'true'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Remove WinForms global usings; reference System.Windows.Forms types explicitly. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Clicky.Windows.Tests" />
+  </ItemGroup>
+
+</Project>

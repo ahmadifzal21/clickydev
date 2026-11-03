@@ -145,6 +145,54 @@ IMPORTANT: Follow these naming rules strictly. Clarity is the top priority.
 - Do not rename the project directory or scheme (the "leanring" typo is intentional/legacy)
 - Do not run `xcodebuild` from the terminal — it invalidates TCC permissions
 
+## Windows Port (`windows/`)
+
+A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Clicky.exe`. It lives entirely in `windows/`; the Mac code and `worker/` are not touched by it. The porting plan, Swift → Windows mapping, coordinate model, and step list are in `windows/PORTING-PLAN.md`.
+
+### Windows Architecture
+
+- **App Type**: System-tray only (`ShutdownMode=OnExplicitShutdown`, no main window), single instance via a named mutex
+- **Framework**: WPF for all UI. WinForms is referenced only for `NotifyIcon`, since WPF has no tray icon
+- **DPI**: PerMonitorV2 (in `app.manifest`). Win32 coordinates are physical pixels in virtual-screen space, and each overlay window converts to its own DIPs
+- **AI backends**: `claude -p` (Claude Code CLI, using the user's login), `codex exec -i` (Codex CLI, using the user's login), and optionally the existing Cloudflare Worker `/chat` route. No API keys ship in the app
+- **Routing**: `clicky.config.json` maps each job (`answer`, `pointing`) to a backend, plus a `fallback` backend. It's read from next to `Clicky.exe`, else `%APPDATA%\Clicky\`, and is editable from the tray menu
+- **Voice**: Whisper.net (local) for STT and Edge TTS by default; AssemblyAI / ElevenLabs are optional when keys are set in the config
+- **Shared with Mac verbatim**: both system prompts and the `[POINT:x,y:label:screenN]` regex. If you change one, change both
+
+### Windows Key Files
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `windows/Clicky.Windows/App.xaml.cs` | ~60 | Tray-only entry point. Single-instance guard, loads config. Currently a placeholder tray icon with Quit |
+| `windows/Clicky.Windows/app.manifest` | ~25 | PerMonitorV2 DPI awareness |
+| `windows/Clicky.Windows/Companion/CompanionVoiceState.cs` | ~20 | Idle / Listening / Processing / Responding |
+| `windows/Clicky.Windows/Companion/CompanionSystemPrompts.cs` | ~75 | System prompts copied verbatim from `CompanionManager.swift` |
+| `windows/Clicky.Windows/Companion/PointTagParser.cs` | ~80 | Port of `parsePointingCoordinates`, with the same regex |
+| `windows/Clicky.Windows/Configuration/ClickyConfiguration.cs` | ~170 | `clicky.config.json` model: job routing, backend settings, voice settings, shortcut |
+| `windows/Clicky.Windows/Configuration/ClickyConfigurationStore.cs` | ~130 | Load/create/save config. Atomic writes; never overwrites a file it failed to parse |
+| `windows/Clicky.Windows/AI/ICompanionChatBackend.cs` | ~45 | Backend interface and request records (labeled screenshots, history, prompts) |
+| `windows/Clicky.Windows.Tests/` | — | xUnit tests for parsing and config |
+
+### Windows Build & Run
+
+```bash
+cd windows
+dotnet build                                   # debug build
+dotnet test                                    # unit tests
+dotnet run --project Clicky.Windows            # run (tray icon appears)
+dotnet publish Clicky.Windows -c Release -o publish   # → publish/Clicky.exe (single file)
+```
+
+`windows/nuget.config` pins restore to nuget.org, so builds don't depend on the user-level NuGet config.
+
+### C# Conventions
+
+The naming and clarity rules above apply unchanged: long descriptive names, no single-character variables, and arguments named the same as the variables passed in.
+- Use WPF for UI. Drop to Win32 (P/Invoke) only for things WPF can't do (click-through overlays, low-level keyboard hooks, `WS_EX_NOACTIVATE`), and comment why
+- UI state changes happen on the WPF dispatcher thread; use async/await for I/O and child processes
+- Fully qualify `System.Windows.Forms` / `System.Drawing` types (their implicit usings are removed) to avoid clashes with WPF types
+- Keep logic that doesn't need a window (parsing, coordinate mapping, config, routing) in plain classes with tests in `Clicky.Windows.Tests`
+
 ## Git Workflow
 
 - Branch naming: `feature/description` or `fix/description`
