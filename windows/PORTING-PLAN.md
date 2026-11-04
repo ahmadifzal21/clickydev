@@ -89,7 +89,8 @@ Backends: `claude-code-cli`, `codex-cli`, `cloudflare-worker`.
    shows listening state. Tray shows the shortcut.
 4. **Screen capture**: per-monitor JPEG capture, cursor screen first, labels match the Mac.
    Primary method is Windows Graphics Capture (`Windows.Graphics.Capture`, one frame per
-   monitor via `CreateForMonitor`, border and system cursor turned off). It reads what the
+   monitor via `CreateForMonitor`, system cursor turned off; the yellow capture border stays on
+   in the portable build, see step 9). It reads what the
    compositor shows, so GPU-drawn apps and HDR monitors come out right where `BitBlt` can
    return black or washed-out frames. GDI `BitBlt` stays as a per-monitor fallback if WGC
    fails to start. Requires targeting `net8.0-windows10.0.19041.0`. Tray item "Save debug screenshots" writes them to a folder so you can check them.
@@ -103,6 +104,23 @@ Backends: `claude-code-cli`, `codex-cli`, `cloudflare-worker`.
    added only if this feels too slow or flat end to end.
 8. **Full pipeline**: hotkey → record → transcribe → capture → answer → speak → point;
    transient cursor mode; single-file publish.
+9. **Package identity + installer (after step 8, optional)**: only if the capture border bothers
+   you, or for OCR snapping / sharing Clicky with others.
+   - 9a. *Identity on your PC (~1-2 days, no outside parties)*: self-signed dev certificate
+     trusted in `CurrentUser\TrustedPeople`; an identity manifest ("packaged with external
+     location": `AllowExternalContent`, `runFullTrust`, `unvirtualizedResources`,
+     `graphicsCaptureWithoutBorder`, microphone, `AppListEntry="none"`); a matching `<msix>`
+     element in `app.manifest`; a script that packs (`MakeAppx /nv`), signs (SignTool) and
+     registers (`Add-AppxPackage -ExternalLocation`) against one fixed run folder, plus unregister.
+     The app checks for identity at start-up: with it, asks once for borderless capture
+     (`RequestAccessAsync(Borderless)`, `IsBorderRequired = false`); without it, keeps the border.
+   - 9b. *MSI installer (~3-5 days)*: WiX, per-user install to `%LOCALAPPDATA%\Programs\Clicky`,
+     registers the identity package on install and removes it on uninstall; upgrades bump the
+     identity version; tested on a clean VM / Windows Sandbox.
+   - 9c. *Signing for other people*: the only outside step. A certificate their PCs trust:
+     Microsoft Artifact Signing (identity check; individuals only in the USA/Canada) or a
+     commercial OV code-signing certificate. No Store review or Microsoft approval is needed for
+     sideloading. SmartScreen may still warn on a new signature until it builds reputation.
 
 ## Risks / open questions
 
@@ -115,7 +133,9 @@ Backends: `claude-code-cli`, `codex-cli`, `cloudflare-worker`.
   on the dev PC (Intel Arc), so the CPU runtime first; Whisper.net's Vulkan runtime is an option
   to measure if decoding is slow.
 - **Model downloads** on first use: Whisper `base.en` ~140 MB, Kokoro ~320 MB.
-- **WGC capture border**: Windows draws a yellow border around a captured screen. Windows 11
-  lets us turn it off; Windows 10 can't, so the border flashes briefly per capture there.
+- **WGC capture border**: Windows draws a yellow border around a captured screen. Turning it
+  off needs package identity with the `graphicsCaptureWithoutBorder` capability plus a one-time
+  user consent, so the portable `.exe` shows the border briefly per capture on Windows 10 and 11
+  alike. Step 9 removes it.
   DRM-protected video is black with either capture method.
 - `ctrl+alt` is AltGr on some keyboard layouts; the shortcut is configurable.
