@@ -79,8 +79,22 @@
                               Style="{StaticResource DS.ToggleSwitch}" Click="HandleShowClickyToggleClick" />
             </Grid>
 
-            <!-- Backend routing pickers (T1.4). -->
-            <StackPanel x:Name="BackendPickersSection" Margin="16,14,16,0" />
+            <!-- Backend routing pickers: rows built in code from BackendRoutingPickerRows. -->
+            <TextBlock Margin="16,16,16,6" Text="AI BACKENDS" FontSize="10" FontWeight="SemiBold"
+                       Foreground="{StaticResource DS.TextTertiary}" />
+            <StackPanel x:Name="BackendPickersSection" Margin="16,0" />
+
+            <!-- Shown only when clicky.config.json exists but couldn't be parsed. -->
+            <Border x:Name="ConfigurationErrorBanner" Visibility="Collapsed" Margin="16,10,16,0" Padding="10,8"
+                    Background="#1AFFB224" BorderBrush="{StaticResource DS.Warning}" BorderThickness="1"
+                    CornerRadius="{StaticResource DS.CornerRadius.Medium}">
+                <TextBlock x:Name="ConfigurationErrorTextBlock" TextWrapping="Wrap" FontSize="11"
+                           Foreground="{StaticResource DS.Warning}" />
+            </Border>
+
+            <Button Margin="8,8,8,0" Style="{StaticResource DS.PanelButton}" Click="HandleOpenConfigurationFileButtonClick">
+                <TextBlock Text="Open config file" />
+            </Button>
 
             <Rectangle Height="1" Margin="0,14,0,0" Fill="{StaticResource DS.BorderSubtle}" />
 

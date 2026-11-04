@@ -37,11 +37,11 @@ T1.6 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T1.4 — Backend routing pickers (not started). Fill `BackendPickersSection` in
-`Tray/CompanionPanelWindow.xaml` with segmented pickers (style `DS.SegmentButton` already exists in
-`Tray/ClickyDesignSystem.xaml`) for Answer / Pointing / Fallback (Fallback adds "None"); mirror them as
-radio-checked submenus in the tray ContextMenuStrip; save via `ClickyConfigurationStore.UpdateAndSave`.
-Show `ConfigurationLoadErrorMessage` in the panel (DS.Warning) and add "Open config file" (panel + tray).
+T1.5 — Replace the placeholder tray in `App.xaml.cs` with `TrayContextMenu` + `TrayIconManager` +
+`CompanionPanelWindow` (left-click → `panel.TogglePanel(point)`; Quit from panel/menu → Shutdown;
+dispose in OnExit; on ConfigurationChanged call `panel.SetCompanionStatus(cfg.IsClickyCursorAlwaysVisible, Idle)`).
+Then add the new Windows files to AGENTS.md (it currently documents only the Mac app; add a short
+"Windows port" section pointing at `windows/PORTING-PLAN.md` and listing the Tray/ files).
 
 ## Ticket log (newest last)
 
@@ -60,6 +60,10 @@ Show `ConfigurationLoadErrorMessage` in the panel (DS.Warning) and add "Open con
   `ClickyConfigurationStore`; `SetCompanionStatus(isOverlayVisible, voiceState)` for the app.
   Text mapping in `Tray/CompanionPanelText.cs` (+ tests). Styles: DS.PanelButton,
   DS.CircleIconButton, DS.ToggleSwitch, DS.SegmentButton (all hand cursor + hover).
+- T1.4 done: `Tray/BackendRoutingPickerRows.cs` (+ tests) defines the Answer/Pointing/Fallback
+  rows once; panel builds segmented pickers from it, `Tray/TrayContextMenu.cs` builds checked
+  submenus + Open config file + error line + Quit. Both save via UpdateAndSave and re-sync on
+  ConfigurationChanged. Panel shows a warning banner when the config failed to parse.
 
 ## Tracker sync pending
 

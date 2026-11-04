@@ -44,6 +44,14 @@ public partial class CompanionPanelWindow : Window
         InitializeComponent();
         SourceInitialized += HandleSourceInitialized;
 
+        BuildBackendPickers();
+        if (clickyConfigurationStore.ConfigurationLoadErrorMessage is { } configurationLoadErrorMessage)
+        {
+            ConfigurationErrorTextBlock.Text =
+                $"clicky.config.json couldn't be read, so Clicky is using defaults and won't save changes until it's fixed.\n{configurationLoadErrorMessage}";
+            ConfigurationErrorBanner.Visibility = Visibility.Visible;
+        }
+
         clickyConfigurationStore.ConfigurationChanged += ApplyConfiguration;
         ApplyConfiguration(clickyConfigurationStore.CurrentConfiguration);
         SetCompanionStatus(clickyConfigurationStore.CurrentConfiguration.IsClickyCursorAlwaysVisible, CompanionVoiceState.Idle);
@@ -67,8 +75,70 @@ public partial class CompanionPanelWindow : Window
         StatusDotGlow.Color = statusDotBrush.Color;
     }
 
+    private readonly List<(BackendRoutingPickerRow PickerRow, System.Windows.Controls.Primitives.ToggleButton SegmentButton, ChatBackendKind? Option)> backendSegmentButtons = [];
+
+    /// <summary>
+    /// One labeled segmented control per picker row. Each segment is a ToggleButton whose checked
+    /// state is driven from the config (in ApplyConfiguration), never left to the button itself.
+    /// </summary>
+    private void BuildBackendPickers()
+    {
+        Style segmentButtonStyle = (Style)FindResource("DS.SegmentButton");
+
+        foreach (BackendRoutingPickerRow pickerRow in BackendRoutingPickerRows.All)
+        {
+            System.Windows.Controls.Grid pickerRowGrid = new() { Margin = new Thickness(0, 0, 0, 6) };
+            pickerRowGrid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new GridLength(64) });
+            pickerRowGrid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            pickerRowGrid.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = pickerRow.Title,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = (Brush)FindResource("DS.TextSecondary")
+            });
+
+            System.Windows.Controls.Primitives.UniformGrid segmentsGrid = new() { Rows = 1 };
+            foreach (ChatBackendKind? option in pickerRow.Options)
+            {
+                System.Windows.Controls.Primitives.ToggleButton segmentButton = new()
+                {
+                    Content = BackendRoutingPickerRows.GetOptionDisplayName(option),
+                    Style = segmentButtonStyle
+                };
+                segmentButton.Click += (_, _) => clickyConfigurationStore.UpdateAndSave(configuration => pickerRow.SetSelectedBackend(configuration, option));
+                segmentsGrid.Children.Add(segmentButton);
+                backendSegmentButtons.Add((pickerRow, segmentButton, option));
+            }
+
+            System.Windows.Controls.Border segmentsTrack = new()
+            {
+                Background = (Brush)FindResource("DS.Surface1"),
+                CornerRadius = (CornerRadius)FindResource("DS.CornerRadius.Small"),
+                Padding = new Thickness(2),
+                Child = segmentsGrid
+            };
+            System.Windows.Controls.Grid.SetColumn(segmentsTrack, 1);
+            pickerRowGrid.Children.Add(segmentsTrack);
+
+            BackendPickersSection.Children.Add(pickerRowGrid);
+        }
+    }
+
+    private void HandleOpenConfigurationFileButtonClick(object sender, RoutedEventArgs routedEventArgs)
+    {
+        HidePanel();
+        BackendRoutingPickerRows.OpenConfigurationFileInEditor(clickyConfigurationStore.ConfigurationFilePath);
+    }
+
     private void ApplyConfiguration(ClickyConfiguration clickyConfiguration)
     {
+        foreach ((BackendRoutingPickerRow pickerRow, System.Windows.Controls.Primitives.ToggleButton segmentButton, ChatBackendKind? option) in backendSegmentButtons)
+        {
+            segmentButton.IsChecked = pickerRow.GetSelectedBackend(clickyConfiguration) == option;
+        }
+
         PushToTalkShortcutRun.Text = CompanionPanelText.FormatShortcutForDisplay(clickyConfiguration.PushToTalkShortcut);
 
         ShowClickyToggle.IsChecked = clickyConfiguration.IsClickyCursorAlwaysVisible;
