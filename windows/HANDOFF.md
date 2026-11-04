@@ -37,9 +37,11 @@ T1.6 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T1.3 — Panel content (not started). Fill `PanelContentStack` in `Tray/CompanionPanelWindow.xaml`.
-Mac reference: `leanring-buddy/CompanionPanelView.swift` (header ~L85, statusText ~L742).
-Avoid ComboBox/Popup in the panel (non-activating window → popups misbehave); use segmented buttons.
+T1.4 — Backend routing pickers (not started). Fill `BackendPickersSection` in
+`Tray/CompanionPanelWindow.xaml` with segmented pickers (style `DS.SegmentButton` already exists in
+`Tray/ClickyDesignSystem.xaml`) for Answer / Pointing / Fallback (Fallback adds "None"); mirror them as
+radio-checked submenus in the tray ContextMenuStrip; save via `ClickyConfigurationStore.UpdateAndSave`.
+Show `ConfigurationLoadErrorMessage` in the panel (DS.Warning) and add "Open config file" (panel + tray).
 
 ## Ticket log (newest last)
 
@@ -52,6 +54,12 @@ Avoid ComboBox/Popup in the panel (non-activating window → popups misbehave); 
   Placement math in `Tray/CompanionPanelPlacement.cs` (+ tests): any taskbar edge, any monitor,
   physical px via GetMonitorInfo + GetDpiForMonitor. Outside click = WH_MOUSE_LL while visible;
   Escape = RegisterHotKey while visible; tray click within 350 ms of an outside-click hide is ignored.
+- T1.3 done: panel content in `CompanionPanelWindow.xaml` — header (status dot+glow, "Clicky",
+  status text, close x), push-to-talk hint from config, Show Clicky switch (saves
+  `IsClickyCursorAlwaysVisible`), Quit (`QuitRequested` event). Window ctor now takes
+  `ClickyConfigurationStore`; `SetCompanionStatus(isOverlayVisible, voiceState)` for the app.
+  Text mapping in `Tray/CompanionPanelText.cs` (+ tests). Styles: DS.PanelButton,
+  DS.CircleIconButton, DS.ToggleSwitch, DS.SegmentButton (all hand cursor + hover).
 
 ## Tracker sync pending
 

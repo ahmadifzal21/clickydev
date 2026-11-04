@@ -1,6 +1,9 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
+using Clicky.Windows.Companion;
+using Clicky.Windows.Configuration;
 
 namespace Clicky.Windows.Tray;
 
@@ -30,13 +33,63 @@ public partial class CompanionPanelWindow : Window
     private LowLevelMouseProc? mouseHookCallback; // kept in a field so the GC can't collect it while hooked
     private DateTime lastOutsideClickHideTimeUtc = DateTime.MinValue;
 
-    public CompanionPanelWindow()
+    private readonly ClickyConfigurationStore clickyConfigurationStore;
+
+    /// <summary>Raised when the user clicks Quit Clicky; the app owns shutdown.</summary>
+    public event Action? QuitRequested;
+
+    public CompanionPanelWindow(ClickyConfigurationStore clickyConfigurationStore)
     {
+        this.clickyConfigurationStore = clickyConfigurationStore;
         InitializeComponent();
         SourceInitialized += HandleSourceInitialized;
+
+        clickyConfigurationStore.ConfigurationChanged += ApplyConfiguration;
+        ApplyConfiguration(clickyConfigurationStore.CurrentConfiguration);
+        SetCompanionStatus(clickyConfigurationStore.CurrentConfiguration.IsClickyCursorAlwaysVisible, CompanionVoiceState.Idle);
     }
 
     public bool IsPanelVisible => IsVisible;
+
+    /// <summary>Updates the header status dot and text. Called by the app as companion state changes.</summary>
+    public void SetCompanionStatus(bool isCursorOverlayVisible, CompanionVoiceState voiceState)
+    {
+        StatusTextBlock.Text = CompanionPanelText.GetStatusText(isCursorOverlayVisible, voiceState);
+
+        string statusDotBrushKey = CompanionPanelText.GetStatusDotColor(isCursorOverlayVisible, voiceState) switch
+        {
+            CompanionStatusDotColor.Ready => "DS.Success",
+            CompanionStatusDotColor.Busy => "DS.Blue400",
+            _ => "DS.TextTertiary"
+        };
+        SolidColorBrush statusDotBrush = (SolidColorBrush)FindResource(statusDotBrushKey);
+        StatusDot.Fill = statusDotBrush;
+        StatusDotGlow.Color = statusDotBrush.Color;
+    }
+
+    private void ApplyConfiguration(ClickyConfiguration clickyConfiguration)
+    {
+        PushToTalkShortcutRun.Text = CompanionPanelText.FormatShortcutForDisplay(clickyConfiguration.PushToTalkShortcut);
+
+        ShowClickyToggle.IsChecked = clickyConfiguration.IsClickyCursorAlwaysVisible;
+        ShowClickyDescriptionTextBlock.Text = clickyConfiguration.IsClickyCursorAlwaysVisible
+            ? "The blue cursor stays on screen."
+            : "The cursor only appears while you talk to Clicky.";
+    }
+
+    private void HandleShowClickyToggleClick(object sender, RoutedEventArgs routedEventArgs)
+    {
+        bool isClickyCursorAlwaysVisible = ShowClickyToggle.IsChecked == true;
+        clickyConfigurationStore.UpdateAndSave(configuration => configuration.IsClickyCursorAlwaysVisible = isClickyCursorAlwaysVisible);
+    }
+
+    private void HandleCloseButtonClick(object sender, RoutedEventArgs routedEventArgs) => HidePanel();
+
+    private void HandleQuitButtonClick(object sender, RoutedEventArgs routedEventArgs)
+    {
+        HidePanel();
+        QuitRequested?.Invoke();
+    }
 
     /// <summary>Toggles the panel from a tray-icon click at <paramref name="trayClickPhysicalPoint"/>.</summary>
     public void TogglePanel(System.Drawing.Point trayClickPhysicalPoint)
@@ -177,6 +230,7 @@ public partial class CompanionPanelWindow : Window
     {
         StopWatchingForDismissal();
         panelHwndSource?.RemoveHook(HandlePanelWindowMessage);
+        clickyConfigurationStore.ConfigurationChanged -= ApplyConfiguration;
         base.OnClosed(eventArgs);
     }
 

@@ -29,7 +29,64 @@
         <Border.Effect>
             <DropShadowEffect Color="Black" Opacity="0.5" BlurRadius="20" ShadowDepth="6" Direction="270" />
         </Border.Effect>
-        <!-- Filled by the panel content (T1.3) and backend pickers (T1.4). -->
-        <StackPanel x:Name="PanelContentStack" />
+        <StackPanel>
+            <!-- Header: status dot + name, status text, close (CompanionPanelView.panelHeader). -->
+            <Grid Margin="16,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{StaticResource DS.TextTertiary}">
+                        <Ellipse.Effect>
+                            <DropShadowEffect x:Name="StatusDotGlow" ShadowDepth="0" BlurRadius="8" Opacity="0.6" Color="#6B736F" />
+                        </Ellipse.Effect>
+                    </Ellipse>
+                    <TextBlock Margin="8,0,0,0" Text="Clicky" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource DS.TextPrimary}" />
+                </StackPanel>
+                <TextBlock x:Name="StatusTextBlock" Grid.Column="1" Margin="0,0,10,0" VerticalAlignment="Center"
+                           Text="Ready" FontSize="12" FontWeight="Medium" Foreground="{StaticResource DS.TextTertiary}" />
+                <Button Grid.Column="2" Style="{StaticResource DS.CircleIconButton}" ToolTip="Close" Click="HandleCloseButtonClick">
+                    <TextBlock Text="&#xE8BB;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="8" />
+                </Button>
+            </Grid>
+
+            <Rectangle Height="1" Fill="{StaticResource DS.BorderSubtle}" />
+
+            <!-- Push-to-talk hint. -->
+            <Border Margin="16,14,16,0" Padding="12,10" Background="{StaticResource DS.Surface1}"
+                    CornerRadius="{StaticResource DS.CornerRadius.Large}">
+                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DS.TextSecondary}">
+                    <Run Text="Hold" />
+                    <Run x:Name="PushToTalkShortcutRun" Text="Ctrl + Alt" FontWeight="SemiBold" Foreground="{StaticResource DS.TextPrimary}" />
+                    <Run Text="to talk to Clicky about your screen." />
+                </TextBlock>
+            </Border>
+
+            <!-- Show Clicky toggle (CompanionPanelView "Show Clicky Cursor Toggle"). -->
+            <Grid Margin="16,12,16,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Show Clicky" FontSize="13" FontWeight="Medium" Foreground="{StaticResource DS.TextPrimary}" />
+                    <TextBlock x:Name="ShowClickyDescriptionTextBlock" Margin="0,2,0,0" FontSize="11" TextWrapping="Wrap"
+                               Foreground="{StaticResource DS.TextTertiary}" Text="The blue cursor stays on screen." />
+                </StackPanel>
+                <ToggleButton x:Name="ShowClickyToggle" Grid.Column="1" VerticalAlignment="Center"
+                              Style="{StaticResource DS.ToggleSwitch}" Click="HandleShowClickyToggleClick" />
+            </Grid>
+
+            <!-- Backend routing pickers (T1.4). -->
+            <StackPanel x:Name="BackendPickersSection" Margin="16,14,16,0" />
+
+            <Rectangle Height="1" Margin="0,14,0,0" Fill="{StaticResource DS.BorderSubtle}" />
+
+            <Button Margin="8" Style="{StaticResource DS.PanelButton}" Click="HandleQuitButtonClick">
+                <TextBlock Text="Quit Clicky" />
+            </Button>
+        </StackPanel>
     </Border>
 </Window>
