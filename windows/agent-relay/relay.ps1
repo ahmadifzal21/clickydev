@@ -15,9 +15,10 @@ param(
     [ValidateSet('claude', 'codex')] [string] $StartWith = 'codex',
     [int] $MaxRuns = 30,
     [int] $BothLimitedSleepMinutes = 20,
-    # Codex needs to write outside the repo (NuGet cache, dotnet build servers), so the
-    # workspace-write sandbox breaks `dotnet build`. Change to workspace-write if you prefer.
-    [string] $CodexSandbox = 'danger-full-access'
+    # Codex stays sandboxed: it may write only inside the repo plus the NuGet package cache
+    # (which `dotnet restore` needs), with network on for package restore. Full access is
+    # deliberately not offered; run the relay in a VM/container if you need more.
+    [ValidateSet('read-only', 'workspace-write')] [string] $CodexSandbox = 'workspace-write'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,7 +57,10 @@ function Invoke-Agent([string] $agent, [string] $logPath) {
         if ($agent -eq 'claude') {
             $output = & claude -p $prompt --permission-mode auto 2>&1
         } else {
-            $output = $prompt | & codex exec --sandbox $CodexSandbox -C $repoDir - 2>&1
+            $nugetCacheDir = (Join-Path $env:USERPROFILE '.nuget\packages') -replace '\\', '/'
+            $output = $prompt | & codex exec --sandbox $CodexSandbox -C $repoDir `
+                -c "sandbox_workspace_write.writable_roots=[`"$nugetCacheDir`"]" `
+                -c 'sandbox_workspace_write.network_access=true' - 2>&1
         }
         $exitCode = $LASTEXITCODE
     } finally { Pop-Location }
