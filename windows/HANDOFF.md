@@ -37,13 +37,21 @@ T1.6 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T1.2 — CompanionPanelWindow shell (not started).
+T1.3 — Panel content (not started). Fill `PanelContentStack` in `Tray/CompanionPanelWindow.xaml`.
+Mac reference: `leanring-buddy/CompanionPanelView.swift` (header ~L85, statusText ~L742).
+Avoid ComboBox/Popup in the panel (non-activating window → popups misbehave); use segmented buttons.
 
 ## Ticket log (newest last)
 
 - T1.1 done: `Tray/TrayIconManager.cs` — NotifyIcon with a code-drawn blue cursor icon (white
   outline), `TrayIconLeftClicked(Point physicalCursorPos)` event, context menu passed in by the
   caller, hide+dispose+DestroyIcon on Dispose. Not wired into App yet (T1.5 does that).
+- T1.2 done: `Tray/CompanionPanelWindow.xaml(.cs)` — borderless transparent window, 320-wide
+  card (DS tokens in `Tray/ClickyDesignSystem.xaml`, merged in App.xaml), drop shadow,
+  WS_EX_NOACTIVATE|TOOLWINDOW, `TogglePanel(Point)` / `ShowNearTrayClick` / `HidePanel`.
+  Placement math in `Tray/CompanionPanelPlacement.cs` (+ tests): any taskbar edge, any monitor,
+  physical px via GetMonitorInfo + GetDpiForMonitor. Outside click = WH_MOUSE_LL while visible;
+  Escape = RegisterHotKey while visible; tray click within 350 ms of an outside-click hide is ignored.
 
 ## Tracker sync pending
 

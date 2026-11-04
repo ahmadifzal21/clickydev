@@ -4,5 +4,7 @@
              ShutdownMode="OnExplicitShutdown">
     <!-- No StartupUri: like the Mac menu bar app, Clicky has no main window.
          It lives in the system tray; App.OnStartup builds everything. -->
-    <Application.Resources />
+    <Application.Resources>
+        <ResourceDictionary Source="Tray/ClickyDesignSystem.xaml" />
+    </Application.Resources>
 </Application>

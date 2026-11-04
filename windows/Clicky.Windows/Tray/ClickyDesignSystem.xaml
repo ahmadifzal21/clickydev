@@ -1,0 +1,27 @@
+<!-- Design tokens ported from leanring-buddy/DesignSystem.swift (DS.Colors, DS.CornerRadius).
+     Every Windows UI surface references these keys instead of hard-coding colors. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="DS.Background" Color="#101211" />
+    <SolidColorBrush x:Key="DS.Surface1" Color="#171918" />
+    <SolidColorBrush x:Key="DS.Surface2" Color="#202221" />
+    <SolidColorBrush x:Key="DS.Surface3" Color="#272A29" />
+    <SolidColorBrush x:Key="DS.Surface4" Color="#2E3130" />
+    <SolidColorBrush x:Key="DS.BorderSubtle" Color="#373B39" />
+    <SolidColorBrush x:Key="DS.BorderStrong" Color="#444947" />
+    <SolidColorBrush x:Key="DS.TextPrimary" Color="#ECEEED" />
+    <SolidColorBrush x:Key="DS.TextSecondary" Color="#ADB5B2" />
+    <SolidColorBrush x:Key="DS.TextTertiary" Color="#6B736F" />
+    <SolidColorBrush x:Key="DS.Accent" Color="#2563EB" />
+    <SolidColorBrush x:Key="DS.AccentHover" Color="#1D4ED8" />
+    <SolidColorBrush x:Key="DS.AccentText" Color="#60A5FA" />
+    <SolidColorBrush x:Key="DS.Blue400" Color="#60A5FA" />
+    <SolidColorBrush x:Key="DS.Success" Color="#34D399" />
+    <SolidColorBrush x:Key="DS.Warning" Color="#FFB224" />
+    <SolidColorBrush x:Key="DS.HoverOverlay" Color="#14FFFFFF" />
+
+    <CornerRadius x:Key="DS.CornerRadius.Small">6</CornerRadius>
+    <CornerRadius x:Key="DS.CornerRadius.Medium">8</CornerRadius>
+    <CornerRadius x:Key="DS.CornerRadius.Large">10</CornerRadius>
+    <CornerRadius x:Key="DS.CornerRadius.Panel">12</CornerRadius>
+</ResourceDictionary>
