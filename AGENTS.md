@@ -157,13 +157,22 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 - **AI backends**: `claude -p` (Claude Code CLI, using the user's login), `codex exec -i` (Codex CLI, using the user's login), and optionally the existing Cloudflare Worker `/chat` route. No API keys ship in the app
 - **Routing**: `clicky.config.json` maps each job (`answer`, `pointing`) to a backend, plus a `fallback` backend. It's read from next to `Clicky.exe`, else `%APPDATA%\Clicky\`, and is editable from the tray menu
 - **Voice**: Whisper.net (local) for STT and Edge TTS by default; AssemblyAI / ElevenLabs are optional when keys are set in the config
+- **Tray panel**: left-click the tray icon toggles a borderless, non-activating companion panel placed next to the taskbar on whichever edge/monitor it's on; right-click opens a menu with the same backend pickers. Panel UI avoids ComboBox/Popup because popups misbehave in a window that never activates
+- **Multi-agent hand-off**: `windows/HANDOFF.md` records the current ticket and progress for whichever agent picks up the work next; `windows/agent-relay/relay.ps1` alternates Claude Code and Codex CLI headlessly when one hits its usage limit
 - **Shared with Mac verbatim**: both system prompts and the `[POINT:x,y:label:screenN]` regex. If you change one, change both
 
 ### Windows Key Files
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `windows/Clicky.Windows/App.xaml.cs` | ~60 | Tray-only entry point. Single-instance guard, loads config. Currently a placeholder tray icon with Quit |
+| `windows/Clicky.Windows/App.xaml.cs` | ~75 | Tray-only entry point. Single-instance guard, loads config, wires tray icon + context menu + companion panel, disposes the tray icon on exit |
+| `windows/Clicky.Windows/Tray/TrayIconManager.cs` | ~115 | `NotifyIcon` with a code-drawn blue cursor icon. Left-click raises `TrayIconLeftClicked(point)`; right-click shows the context menu |
+| `windows/Clicky.Windows/Tray/TrayContextMenu.cs` | ~75 | Right-click menu: Answer / Pointing / Fallback backend submenus (checked from config), Open config file, config error line, Quit |
+| `windows/Clicky.Windows/Tray/CompanionPanelWindow.xaml(.cs)` | ~520 | Floating dark panel. `WS_EX_NOACTIVATE` (never steals focus), so outside clicks are caught with a `WH_MOUSE_LL` hook and Escape with `RegisterHotKey`, both only while visible. Status, push-to-talk hint, Show Clicky switch, backend segmented pickers, config error banner, Quit |
+| `windows/Clicky.Windows/Tray/CompanionPanelPlacement.cs` | ~90 | Pure placement math: detects the taskbar edge from the monitor work area and positions the panel next to the tray click on any edge / monitor (physical pixels) |
+| `windows/Clicky.Windows/Tray/CompanionPanelText.cs` | ~90 | Status text / dot color mapping (port of `statusText` in `CompanionPanelView.swift`) and shortcut display formatting |
+| `windows/Clicky.Windows/Tray/BackendRoutingPickerRows.cs` | ~75 | The Answer / Pointing / Fallback picker definitions shared by the panel and tray menu; opens the config file |
+| `windows/Clicky.Windows/Tray/ClickyDesignSystem.xaml` | ~135 | Colors and corner radii from `DesignSystem.swift`, plus shared button / switch / segment styles (hand cursor + hover) |
 | `windows/Clicky.Windows/app.manifest` | ~25 | PerMonitorV2 DPI awareness |
 | `windows/Clicky.Windows/Companion/CompanionVoiceState.cs` | ~20 | Idle / Listening / Processing / Responding |
 | `windows/Clicky.Windows/Companion/CompanionSystemPrompts.cs` | ~75 | System prompts copied verbatim from `CompanionManager.swift` |
@@ -171,7 +180,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/Configuration/ClickyConfiguration.cs` | ~170 | `clicky.config.json` model: job routing, backend settings, voice settings, shortcut |
 | `windows/Clicky.Windows/Configuration/ClickyConfigurationStore.cs` | ~130 | Load/create/save config. Atomic writes; never overwrites a file it failed to parse |
 | `windows/Clicky.Windows/AI/ICompanionChatBackend.cs` | ~45 | Backend interface and request records (labeled screenshots, history, prompts) |
-| `windows/Clicky.Windows.Tests/` | — | xUnit tests for parsing and config |
+| `windows/Clicky.Windows.Tests/` | — | xUnit tests for parsing, config, panel placement, panel text, picker rows |
 
 ### Windows Build & Run
 

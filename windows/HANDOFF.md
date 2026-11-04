@@ -1,6 +1,6 @@
 # Agent handoff — Clicky Windows port
 
-RELAY-STATUS: active
+RELAY-STATUS: complete
 
 <!-- The relay (agent-relay/relay.ps1) stops when the line above reads `RELAY-STATUS: complete`.
      Set it to complete only when every ticket in "Scope" is committed. -->
@@ -37,11 +37,9 @@ T1.6 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T1.5 — Replace the placeholder tray in `App.xaml.cs` with `TrayContextMenu` + `TrayIconManager` +
-`CompanionPanelWindow` (left-click → `panel.TogglePanel(point)`; Quit from panel/menu → Shutdown;
-dispose in OnExit; on ConfigurationChanged call `panel.SetCompanionStatus(cfg.IsClickyCursorAlwaysVisible, Idle)`).
-Then add the new Windows files to AGENTS.md (it currently documents only the Mac app; add a short
-"Windows port" section pointing at `windows/PORTING-PLAN.md` and listing the Tray/ files).
+None. E1 code tickets T1.1-T1.5 are committed; T1.6 (verify on the user's machine) is waiting on the user.
+Next epic: E2 (cursor overlay, PORTING-PLAN step 2). To continue the relay with E2, update Scope, set
+RELAY-STATUS: active, and set Current ticket to the first E2 task.
 
 ## Ticket log (newest last)
 
@@ -64,6 +62,9 @@ Then add the new Windows files to AGENTS.md (it currently documents only the Mac
   rows once; panel builds segmented pickers from it, `Tray/TrayContextMenu.cs` builds checked
   submenus + Open config file + error line + Quit. Both save via UpdateAndSave and re-sync on
   ConfigurationChanged. Panel shows a warning banner when the config failed to parse.
+- T1.5 done: `App.xaml.cs` wires TrayContextMenu + TrayIconManager + CompanionPanelWindow; Quit from
+  panel or menu shuts down; OnExit disposes the tray icon first. AGENTS.md Windows section updated.
+  Smoke run: Clicky.exe launches and stays up (tray clicks not automatable here; T1.6 is manual).
 
 ## Tracker sync pending
 
