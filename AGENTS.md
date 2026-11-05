@@ -204,9 +204,12 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/AI/ICompanionChatBackend.cs` | ~45 | Backend interface and request records (labeled screenshots, history, prompts) |
 | `windows/Clicky.Windows/AI/ClaudeCodeCliChatBackend.cs` | ~35 | Claude Code backend using the configured executable, model and timeout; actionable installation/login errors |
 | `windows/Clicky.Windows/AI/ClaudeCodeCliProtocol.cs` | ~140 | Stream-JSON arguments, prior turns and labeled image serialization, final-result/error parsing; no CLI or network calls |
+| `windows/Clicky.Windows/AI/CodexCliChatBackend.cs` | ~65 | Codex backend: per-request temp folder (screenshots as JPEG files + `-o` last-message file), deleted afterwards; install/login errors |
+| `windows/Clicky.Windows/AI/CodexCliProtocol.cs` | ~95 | `codex exec` arguments (read-only, ephemeral, one `--image` per screenshot, prompt on stdin), system prompt/history/labels folded into one prompt, result/error parsing |
 | `windows/Clicky.Windows/AI/CliChatProcess.cs` | ~75 | Hidden child-process execution with concurrent pipe draining, timeout/cancellation, and process-tree cleanup |
 | `windows/Clicky.Windows.Tests/` | — | xUnit tests for parsing, config, panel placement, panel text, picker rows and display geometry |
 | `windows/Clicky.Windows.Tests/ClaudeCodeCliProtocolTests.cs` / `ClaudeCodeCliChatBackendTests.cs` | ~145 / ~40 | Claude request/result protocol, tool restrictions, authentication errors, missing executable and invalid timeout tests |
+| `windows/Clicky.Windows.Tests/CodexCliProtocolTests.cs` / `CodexCliChatBackendTests.cs` | ~105 / ~40 | Codex argument/prompt/result tests, login errors, missing executable + temp folder cleanup |
 | `windows/Clicky.Windows.Tests/CliChatProcessTests.cs` | ~125 | Local PowerShell fixtures for UTF-8 pipes, early exit, cancellation and timeout killing parent/child; no AI CLI/network calls |
 | `windows/Clicky.Windows.Tests/CursorOverlayWindowTests.cs` | ~200 | STA native-window tests for physical bounds, input/activation styles, capture affinity and overlay disposal |
 

@@ -54,9 +54,8 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-**T5.2 CodexCliChatBackend — not started.** T5.1 committed (full suite 155/155 on the interactive desktop).
-Reuse `AI/CliChatProcess.cs` for process run/timeout/cancel; mirror the `ClaudeCodeCliProtocol` split (pure, tested
-argument/prompt building + output parsing). Confirm flags with `codex exec --help` first.
+**T5.3 CloudflareWorkerChatBackend — not started.** Read `worker/src/index.ts` `/chat` (read only) and the Mac
+`ClaudeAPI.swift` SSE parsing; pure, tested request building + SSE parsing; no network in tests.
 
 ## Ticket log (newest last)
 
@@ -167,7 +166,15 @@ argument/prompt building + output parsing). Confirm flags with `codex exec --hel
   @paths and /commands literal (checked against claude-agent-sdk 0.3.318, CLI 2.1.318). Final `result` parsed; clear
   errors for not installed / not logged in / timeout; timeout+cancel kill the process tree. 27 tests, no real CLI calls.
   Codex's sandbox desktop failed the 7 SendInput/capture tests; on the interactive desktop all 155 pass.
+- T5.2 done: `AI/CodexCliChatBackend.cs` + pure `AI/CodexCliProtocol.cs` (reuses `CliChatProcess`). Per request a
+  `%TEMP%/clicky-codex-*` folder holds screen-N.jpg (one `--image` each) and the `-o` file; it is the working directory
+  and is deleted in `finally`. `exec --skip-git-repo-check --sandbox read-only --ephemeral --color never`, optional
+  `--model`, then `-- -` (prompt on stdin; `--` stops variadic `--image` eating `-`). System prompt, history and image
+  labels folded into the prompt. Codex 0.163.0: real run confirmed the argument shape parses and stdin is read (account
+  was at its usage limit, so no answer). Note: the user's Codex hooks (UserPromptSubmit) run on every request;
+  `--ignore-user-config` would stop that but also drop their config.toml model/provider, so it's not used. 10 tests.
 
 ## Tracker sync pending
 
 - E5 T5.1 (T5.1.1-T5.1.6) -> testing
+- E5 T5.2 (T5.2.1-T5.2.4) -> testing
