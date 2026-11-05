@@ -54,8 +54,8 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-**T5.4 ChatBackendRouter — not started.** Per-job routing (`Routing.Answer` / `Routing.Pointing` / fallback in
-`ClickyConfiguration`) over the three backends + exactly one fallback attempt; unit tests with fake backends (T5.4.1).
+**T5.5 conversation history — not started.** Keep the last 10 exchanges (Mac `CompanionManager.swift`), storing the
+reply with the [POINT] tag stripped (`PointTagParser`); pure, tested holder that T5.6 feeds into `CompanionChatRequest`.
 
 ## Ticket log (newest last)
 
@@ -180,9 +180,14 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
   `message_stop`/`[DONE]`, skips bad lines, in-stream `error` event throws. Empty/non-http base URL = "not set up" error;
   HTTP errors show status + Anthropic `error.type: message` (+ hints for 401/403/404); unreachable / timeout / caller-cancel
   distinguished. One shared HttpClient (infinite timeout, our own token) keeps TLS warm. 15 tests via a fake handler, no network.
+- T5.4 done: `AI/ChatBackendRouter.cs` — `(Func<JobBackendRouting>, backends)`; routing read per request (live tray changes);
+  `GetResponseAsync(job, request, ct)` -> `RoutedChatResponse(text, answeringBackendKind)`. Routed backend fails/times out
+  -> fallback once (skipped if null, same backend, or caller cancelled); both fail -> one message with both reasons
+  (inner AggregateException). Unknown backend kind = error that can fall back. 9 fake-backend tests (T5.4.1).
 
 ## Tracker sync pending
 
 - E5 T5.1 (T5.1.1-T5.1.6) -> testing
 - E5 T5.2 (T5.2.1-T5.2.4) -> testing
 - E5 T5.3 -> testing
+- E5 T5.4 (T5.4.1) -> testing
