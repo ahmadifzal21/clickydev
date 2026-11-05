@@ -212,6 +212,12 @@ Next epic is not scoped here yet; see `PORTING-PLAN.md`.
   T5.6 "bubble cut short" issue is fixed. Claude's system prompt now goes by `--system-prompt-file` (temp file, deleted after),
   so an npm `claude.cmd` shim can't mangle it; a test runs the real argument list through a `.cmd` echo shim. Real CLI smoke OK.
 
+- T5.8 automated (2026-11-05): `Clicky.Windows.Tests/LiveBackendVerificationTests.cs` (opt-in: `$env:CLICKY_LIVE_BACKENDS=1;
+  dotnet test --filter Category=LiveBackend`) shows an orange "CLICKY TARGET" box, captures, asks each real backend to point
+  at it, checks the [POINT] lands on the box (60 px margin) and the overlay starts pointing. Results: Claude Code CLI pass
+  (5.0 s, [POINT:640,376] = box centre); Codex CLI pass (25.3 s, same point); Cloudflare Worker not set up (no workerBaseUrl).
+  Not automated: watching the flight/bubble on screen (overlay is capture-excluded).
+
 ## Tracker sync pending
 
 (none; E5 T5.1-T5.7 synced to `testing` on 2026-11-05)
