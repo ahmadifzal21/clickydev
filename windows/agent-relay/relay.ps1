@@ -58,8 +58,10 @@ function Invoke-Agent([string] $agent, [string] $logPath) {
             $output = & claude -p $prompt --permission-mode auto 2>&1
         } else {
             $nugetCacheDir = (Join-Path $env:USERPROFILE '.nuget\packages') -replace '\\', '/'
+            # TOML literal string ('...'): Windows PowerShell 5.1 strips embedded double quotes
+            # from native-command arguments, which makes Codex reject the config and exit.
             $output = $prompt | & codex exec --sandbox $CodexSandbox -C $repoDir `
-                -c "sandbox_workspace_write.writable_roots=[`"$nugetCacheDir`"]" `
+                -c "sandbox_workspace_write.writable_roots=['$nugetCacheDir']" `
                 -c 'sandbox_workspace_write.network_access=true' - 2>&1
         }
         $exitCode = $LASTEXITCODE
