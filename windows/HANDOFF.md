@@ -1,19 +1,32 @@
 # Agent handoff — Clicky Windows port
 
-RELAY-STATUS: complete
+RELAY-STATUS: active
 
 <!-- The relay (agent-relay/relay.ps1) stops when the line above reads `RELAY-STATUS: complete`.
      Set it to complete only when every ticket in "Scope" is committed. -->
 
 ## Scope
 
-Epic **E1 — Tray icon and floating panel** (see `PORTING-PLAN.md` step 1).
-Checkpoint: left-click the tray icon → dark panel opens near the tray, closes on outside click;
-changing a backend picker updates `clicky.config.json`.
+Epic **E2 — Cursor overlay and pointing** (see `PORTING-PLAN.md` step 2 and "Coordinates").
+Checkpoint: the blue cursor follows the mouse on every monitor; tray "Test pointing" flies to
+known spots on each monitor at the user's scaling settings.
+Port from the Mac: `leanring-buddy/OverlayWindow.swift` (BlueCursorView look, mouse offset, bezier
+arc flight, bubble) and `CompanionResponseOverlay.swift` (read only — never edit `leanring-buddy/`).
 
-Tickets, in order: T1.1 TrayIconManager · T1.2 CompanionPanelWindow shell · T1.3 Panel content ·
-T1.4 Backend routing pickers · T1.5 Replace placeholder tray code in App.xaml.cs + update AGENTS.md.
-T1.6 (verify on the user's machine) is the user's job — never mark it.
+Tickets, in order:
+T2.1 Monitor enumeration (physical bounds + DPI per monitor; rebuild overlays on display/DPI change) ·
+T2.2 `Overlay/CursorOverlayWindow`, one per monitor (transparent, click-through, toolwindow,
+no-activate, topmost above taskbar/fullscreen, SetWindowPos in physical px, WDA_EXCLUDEFROMCAPTURE) ·
+T2.3 Blue triangle cursor (BlueCursorView look, follows mouse every frame with the Mac offset,
+drawn only on the monitor containing the mouse) ·
+T2.4 Pointing flight (bezier arc, speech bubble with label, hold, fly back, clear) ·
+T2.5 Coordinate mapper screenshot px → global px → overlay DIPs (+ xUnit tests: mixed DPI,
+negative-origin monitors, clamping) ·
+T2.6 Response bubble, waveform and spinner states ·
+T2.7 Fade in/out + transient cursor mode hooks (`IsClickyCursorAlwaysVisible`; replace the
+temporary status wiring in `App.xaml.cs`) ·
+T2.8 Tray "Test pointing" debug item.
+T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Rules for whichever agent is working
 
@@ -23,13 +36,13 @@ T1.6 (verify on the user's machine) is the user's job — never mark it.
    comments explaining *why*, WinForms types fully qualified — implicit WinForms usings are off).
 3. Proof per ticket: `dotnet build Clicky.Windows.sln -c Debug` and `dotnet test` from `windows/`
    must pass. Add xUnit tests for any pure logic (e.g. panel positioning math).
-4. When a ticket is done: commit on branch `windows-port` (message `E1 T1.x: <what>`, no push),
+4. When a ticket is done: commit on branch `windows-port` (message `E2 T2.x: <what>`, no push),
    then append a line to "Ticket log" and to "Tracker sync pending" below, and update
    "Current ticket". Do this **before** starting the next ticket so a cut-off loses little.
 5. Mid-ticket, if you sense you are running low on context or quota, stop coding, write what is
    half-done under "Current ticket" (files touched, what remains), and exit. Don't commit broken
    builds; leave the work uncommitted and say so.
-6. Tracker: https://claude.ai/artifact/MDLM6aQJTQdjsDWwsPb62X, collection `epics`, doc `E1`.
+6. Tracker: https://claude.ai/artifact/MDLM6aQJTQdjsDWwsPb62X, collection `epics`, doc `E2`.
    Claude: if the ArtifactData tool is available, apply every "Tracker sync pending" entry
    (status `testing` for code-complete tasks/subtasks; pin `if_version`), then clear the list.
    Codex: you can't reach the tracker; just append entries there.
@@ -37,9 +50,7 @@ T1.6 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-None. E1 code tickets T1.1-T1.5 are committed; T1.6 (verify on the user's machine) is waiting on the user.
-Next epic: E2 (cursor overlay, PORTING-PLAN step 2). To continue the relay with E2, update Scope, set
-RELAY-STATUS: active, and set Current ticket to the first E2 task.
+T2.1 Monitor enumeration — not started. (E1 is done; its log is kept below for reference.)
 
 ## Ticket log (newest last)
 
