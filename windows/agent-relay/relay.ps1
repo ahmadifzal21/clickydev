@@ -53,6 +53,8 @@ function Test-RelayComplete { (Get-Content $handoffPath -Raw) -match '(?m)^RELAY
 
 function Invoke-Agent([string] $agent, [string] $logPath) {
     Push-Location $repoDir
+    # Agent stderr is normal output, not a failure; under 'Stop' PowerShell 5.1 also hangs piping into codex.ps1.
+    $ErrorActionPreference = 'Continue'
     try {
         if ($agent -eq 'claude') {
             $output = & claude -p $prompt --permission-mode auto 2>&1
