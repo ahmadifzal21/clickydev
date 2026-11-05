@@ -25,8 +25,14 @@ internal sealed class TypedScreenQuestionRunner(
         // shortcut: a modal VB InputBox is enough for a debug entry point; build a styled box if this ever ships to users.
         string userQuestion = Microsoft.VisualBasic.Interaction.InputBox("Ask Clicky about your screen:", "Clicky").Trim();
         if (userQuestion.Length == 0) return;
+        await AnswerAsync(userQuestion);
+    }
 
+    /// <summary>One full turn for <paramref name="userQuestion"/>; returns the text put in the bubble (reply or error).</summary>
+    internal async Task<string> AnswerAsync(string userQuestion)
+    {
         isRunning = true;
+        string bubbleText;
         cursorOverlayManager.ShowTransiently();
         cursorOverlayManager.SetVoiceState(CompanionVoiceState.Processing);
         try
@@ -48,7 +54,8 @@ internal sealed class TypedScreenQuestionRunner(
             PointingParseResult pointingParseResult = PointTagParser.ParsePointingCoordinates(routedResponse.ResponseText);
             // Idle before pointing, like the Mac: the spinner would hide the triangle's flight.
             cursorOverlayManager.SetVoiceState(CompanionVoiceState.Idle);
-            ShowFinishedResponse(pointingParseResult.SpokenText);
+            bubbleText = pointingParseResult.SpokenText;
+            ShowFinishedResponse(bubbleText);
             if (CompanionScreenQuestion.ResolvePointTarget(pointingParseResult, screenCaptures) is { } pointTarget)
                 cursorOverlayManager.PointAt(pointTarget.X, pointTarget.Y, pointingParseResult.ElementLabel);
         }
@@ -56,13 +63,15 @@ internal sealed class TypedScreenQuestionRunner(
         {
             Trace.TraceWarning($"Typed question failed: {exception}");
             cursorOverlayManager.SetVoiceState(CompanionVoiceState.Idle);
-            ShowFinishedResponse($"Clicky couldn't answer: {exception.Message}");
+            bubbleText = $"Clicky couldn't answer: {exception.Message}";
+            ShowFinishedResponse(bubbleText);
         }
         finally
         {
             isRunning = false;
             cursorOverlayManager.ScheduleTransientHide();
         }
+        return bubbleText;
     }
 
     private void ShowFinishedResponse(string responseText)

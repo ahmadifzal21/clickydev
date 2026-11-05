@@ -59,6 +59,9 @@ internal sealed class CursorOverlayManager : IDisposable
     /// <summary>True while any overlay's buddy is flying to, pointing at, or flying back from a target.</summary>
     public bool IsPointing => cursorOverlayWindows.Any(cursorOverlayWindow => cursorOverlayWindow.IsPointing);
 
+    /// <summary>True while any overlay still shows (or fades) a reply bubble.</summary>
+    public bool IsShowingResponse => cursorOverlayWindows.Any(cursorOverlayWindow => cursorOverlayWindow.IsShowingResponse);
+
     /// <summary>
     /// "Show Clicky" toggled. Like the Mac's <c>setClickyCursorEnabled</c>, on shows immediately and off hides
     /// immediately, dropping any pending transient hide. Unchanged values are ignored so unrelated config saves
@@ -164,9 +167,7 @@ internal sealed class CursorOverlayManager : IDisposable
         {
             // The Mac waits for the flight back to the mouse before starting its one-second pause; the reply bubble
             // lives in the overlay too, so it must finish its hold and fade first.
-            bool isAnyOverlayBusy = isAnyOverlayPointing
-                || cursorOverlayWindows.Any(cursorOverlayWindow => cursorOverlayWindow.IsShowingResponse);
-            hideCountdown = isAnyOverlayBusy ? TransientHideDelaySeconds : hideCountdown - elapsedSeconds;
+            hideCountdown = isAnyOverlayPointing || IsShowingResponse ? TransientHideDelaySeconds : hideCountdown - elapsedSeconds;
             transientHideCountdownSeconds = hideCountdown > 0 ? hideCountdown : null;
             if (hideCountdown <= 0)
             {

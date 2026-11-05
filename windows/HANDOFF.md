@@ -224,6 +224,12 @@ Next epic is not scoped here yet; see `PORTING-PLAN.md`.
   config.toml (hooks, notify, `caveman` provider, xhigh effort), so `CodexCliProtocol` now passes `--ignore-user-config`
   (login still from CODEX_HOME; `codexCli.model` picks the model). Live test: Codex 25.3 s -> 7.6 s, still on target.
 
+- T5.8 full run (2026-11-05): live test now drives `TypedScreenQuestionRunner.AnswerAsync` (Run = input box + AnswerAsync) per
+  backend: turn 1 "remember PELICAN + point at the orange box" -> reply without tag, Processing -> Idle, overlay pointing, bubble
+  shown, [POINT] on the box; Show Clicky off -> overlay still up at 5 s, hides after; turn 2 recalls PELICAN from history.
+  Claude Code CLI pass (5.9 s), Codex CLI pass (9.6 s). Worker: not set up -> error bubble shown (expected). Router: Worker
+  failing -> fell back to Claude. App launch smoke OK (403 MB working set). Not automatable: seeing the overlay (capture-excluded).
+
 ## Tracker sync pending
 
 (none; E5 T5.1-T5.7 synced to `testing` on 2026-11-05)
