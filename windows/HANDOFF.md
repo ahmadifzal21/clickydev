@@ -1,6 +1,6 @@
 # Agent handoff — Clicky Windows port
 
-RELAY-STATUS: active
+RELAY-STATUS: complete
 
 <!-- The relay (agent-relay/relay.ps1) stops when the line above reads `RELAY-STATUS: complete`.
      Set it to complete only when every ticket in "Scope" is committed. -->
@@ -54,8 +54,9 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-**T5.7 latency per backend — not started.** `TypedScreenQuestionRunner` already logs capture + answer ms via Trace; measure
-each backend on this machine (CLIs may be at usage limits — say so), write numbers + warm-process recommendation here.
+**E5 agent work complete (T5.1-T5.7 committed).** Only T5.8 remains: the user verifies each backend on their machine via the
+tray "Ask about my screen (typed)" (Codex needs its usage limit to reset; the Worker needs `cloudflareWorker.workerBaseUrl`).
+Next epic is not scoped here yet; see `PORTING-PLAN.md`.
 
 ## Ticket log (newest last)
 
@@ -193,6 +194,19 @@ each backend on this machine (CLIs may be at usage limits — say so), write num
   Errors show "Clicky couldn't answer: ..." in the bubble. Pure `Companion/CompanionScreenQuestion.cs`: labels get the Mac's
   " (image dimensions: WxH pixels)"; `:screenN` picks that capture, else the cursor screen (6 tests). `CreateRouter` shares the
   live settings objects. Smoke: app starts. Known: in transient mode the hide (+1 s after pointing) can cut the 6 s bubble short.
+- T5.7 done (measured 2026-11-05, one 2560x1600 monitor, real backend classes, question "what app is in front?"):
+  capture 290-530 ms. Claude Code CLI (sonnet): answer 4.1-5.0 s, one outlier 8.2 s; text-only `claude -p` with the same
+  flags is 3.4-5.3 s and `claude --version` is ~0.1 s, so images add little and the cost is CLI session setup + model time.
+  Codex CLI: could not answer (account at its usage limit until 5:54 PM); its runs still took 6.4-8.7 s just to start, run
+  the user's SessionStart/UserPromptSubmit hooks and fail. Cloudflare Worker: not set up here (no `workerBaseUrl`), so no
+  number. Found + fixed while measuring: `codex` is an npm `codex.cmd` shim, which `Process.Start` can't find from a bare
+  name; `CliChatProcess.ResolveExecutablePath` now searches PATH for .exe/.cmd/.bat (risk noted in code: a .cmd shim goes
+  through cmd.exe, so an npm-installed *Claude* would mangle the multi-line `--system-prompt`; Claude here is a native exe).
+  Codex errors now show only its `ERROR:` lines instead of 1500 chars of config/hook noise.
+  **Recommendation: don't build warm processes now.** Startup is ~0.1 s; the 3-5 s is per-session setup and model
+  first-token time, and a warm `claude` process would need multi-turn stream-json plumbing for maybe 1-2 s. Bigger wins
+  first, when the voice pipeline lands: stream text (Worker SSE / Claude stream-json partials) so TTS starts on the first
+  sentence. Revisit warm processes if end-to-end voice latency is still > ~6 s.
 
 ## Tracker sync pending
 
@@ -202,3 +216,4 @@ each backend on this machine (CLIs may be at usage limits — say so), write num
 - E5 T5.4 (T5.4.1) -> testing
 - E5 T5.5 -> testing
 - E5 T5.6 -> testing
+- E5 T5.7 -> testing (numbers in Ticket log)

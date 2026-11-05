@@ -14,6 +14,7 @@ internal static class CliChatProcess
         using var timeout = new CancellationTokenSource(responseTimeout);
         using var combinedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         CancellationToken processCancellationToken = combinedCancellation.Token;
+        startInfo.FileName = ResolveExecutablePath(startInfo.FileName, Environment.GetEnvironmentVariable("PATH"));
         using var process = new Process { StartInfo = startInfo };
         process.Start();
 
@@ -62,6 +63,25 @@ internal static class CliChatProcess
             try { await Task.WhenAll(standardOutput, standardError).ConfigureAwait(false); }
             catch (OperationCanceledException) when (processCancellationToken.IsCancellationRequested) { }
         }
+    }
+
+    /// <summary>
+    /// CreateProcess only appends ".exe" to a bare name, but npm installs CLIs as "codex.cmd" / "claude.cmd" shims, so a bare
+    /// name is looked up on PATH as .exe, then .cmd, then .bat. Anything with a directory or extension is used as given.
+    /// </summary>
+    // shortcut: a .cmd shim runs through cmd.exe, which re-parses arguments; ours are file paths, model names and (Claude) the
+    // system prompt, whose newlines a batch shim can't carry. Switch Claude to a prompt file if npm-installed Claude shows up.
+    internal static string ResolveExecutablePath(string fileName, string? searchPath)
+    {
+        if (fileName.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) >= 0 || Path.HasExtension(fileName))
+            return fileName;
+        foreach (string directory in (searchPath ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (string extension in (string[])[".exe", ".cmd", ".bat"])
+            {
+                string candidatePath = Path.Combine(directory.Trim('"'), fileName + extension);
+                if (File.Exists(candidatePath)) return candidatePath;
+            }
+        return fileName;
     }
 
     private static void KillIfRunning(Process process)

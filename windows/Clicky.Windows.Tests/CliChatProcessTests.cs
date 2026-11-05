@@ -118,6 +118,32 @@ public class CliChatProcessTests
         return startInfo;
     }
 
+    [Fact]
+    public void ResolveExecutablePath_FindsNpmCmdShimOnPathButPrefersExe()
+    {
+        string shimOnlyDirectory = Directory.CreateTempSubdirectory("clicky-path-").FullName;
+        string exeDirectory = Directory.CreateTempSubdirectory("clicky-path-").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(shimOnlyDirectory, "codex"), "");      // npm's extensionless sh shim: not runnable
+            File.WriteAllText(Path.Combine(shimOnlyDirectory, "codex.cmd"), "");
+            File.WriteAllText(Path.Combine(exeDirectory, "claude.cmd"), "");
+            File.WriteAllText(Path.Combine(exeDirectory, "claude.exe"), "");
+            string searchPath = $"{shimOnlyDirectory};\"{exeDirectory}\"";
+
+            Assert.Equal(Path.Combine(shimOnlyDirectory, "codex.cmd"), CliChatProcess.ResolveExecutablePath("codex", searchPath));
+            Assert.Equal(Path.Combine(exeDirectory, "claude.exe"), CliChatProcess.ResolveExecutablePath("claude", searchPath));
+            Assert.Equal("missing", CliChatProcess.ResolveExecutablePath("missing", searchPath));
+            Assert.Equal("codex.exe", CliChatProcess.ResolveExecutablePath("codex.exe", searchPath));
+            Assert.Equal(@"C:\tools\codex", CliChatProcess.ResolveExecutablePath(@"C:\tools\codex", searchPath));
+        }
+        finally
+        {
+            Directory.Delete(shimOnlyDirectory, recursive: true);
+            Directory.Delete(exeDirectory, recursive: true);
+        }
+    }
+
     private static Process? FindProcess(int processId)
     {
         try { return Process.GetProcessById(processId); }

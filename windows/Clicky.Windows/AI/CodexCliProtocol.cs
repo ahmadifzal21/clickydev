@@ -87,7 +87,11 @@ internal static class CodexCliProtocol
         if (authenticationErrors.Any(error => details.Contains(error, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Codex is not logged in or its login has expired. Run 'codex login' in a terminal, then try again.");
 
-        // Codex echoes the whole prompt to stderr, so keep the tail where the error is.
+        // Codex surrounds its "ERROR: ..." lines with config warnings and hook chatter; those lines are the actual reason.
+        string[] errorLines = details.Split('\n').Select(line => line.Trim())
+            .Where(line => line.StartsWith("ERROR:", StringComparison.Ordinal)).Distinct().ToArray();
+        if (errorLines.Length > 0) details = string.Join("\n", errorLines);
+        // Otherwise: Codex echoes the whole prompt to stderr, so keep the tail where the error is.
         if (details.Length > 1500) details = "…" + details[^1500..];
         string reason = exitCode != 0 ? $"exited with code {exitCode}" : "returned an empty answer";
         throw new InvalidOperationException($"Codex {reason}.{(details.Length > 0 ? " " + details : "")}");

@@ -87,4 +87,16 @@ public class CodexCliProtocolTests
         Assert.True(failure.Message.Length < 1600);
         Assert.Equal("Codex returned an empty answer.", empty.Message);
     }
+
+    [Fact]
+    public void ParseResponse_ErrorLines_ReplaceSurroundingNoiseAndAreDeduplicated()
+    {
+        const string standardError =
+            "warning: `content_hash` is ignored.\r\nhook: UserPromptSubmit\r\n" +
+            "ERROR: You've hit your usage limit. Try again at 5:54 PM.\r\nERROR: You've hit your usage limit. Try again at 5:54 PM.\r\n";
+
+        var exception = Assert.Throws<InvalidOperationException>(() => CodexCliProtocol.ParseResponse(null, standardError, 1));
+
+        Assert.Equal("Codex exited with code 1. ERROR: You've hit your usage limit. Try again at 5:54 PM.", exception.Message);
+    }
 }
