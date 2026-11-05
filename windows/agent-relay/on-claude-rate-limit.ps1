@@ -4,7 +4,7 @@
 $ErrorActionPreference = 'SilentlyContinue'
 $null = [Console]::In.ReadToEnd()  # hook JSON on stdin; not needed
 $handoffPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'HANDOFF.md'
-if ((Get-Content $handoffPath -Raw) -match 'RELAY-STATUS:\s*complete') { exit 0 }
+if ((Get-Content $handoffPath -Raw) -match '(?m)^RELAY-STATUS:\s*complete') { exit 0 }
 $relayScript = Join-Path $PSScriptRoot 'relay.ps1'
 Start-Process powershell -WindowStyle Minimized -ArgumentList @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$relayScript`"", '-StartWith', 'codex')

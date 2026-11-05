@@ -49,7 +49,7 @@ HANDOFF.md, and exit so the other agent can take over. When every ticket in Scop
 set RELAY-STATUS: complete.
 "@
 
-function Test-RelayComplete { (Get-Content $handoffPath -Raw) -match 'RELAY-STATUS:\s*complete' }
+function Test-RelayComplete { (Get-Content $handoffPath -Raw) -match '(?m)^RELAY-STATUS:\s*complete' }  # line start: the file's comment also mentions it
 
 function Invoke-Agent([string] $agent, [string] $logPath) {
     Push-Location $repoDir
