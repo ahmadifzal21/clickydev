@@ -1,4 +1,6 @@
 using System.Runtime.ExceptionServices;
+using System.Windows;
+using System.Windows.Controls;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -115,6 +117,34 @@ public sealed class CursorOverlayWindowTests
                 Assert.True(SetWindowPos(windowHandle, IntPtr.Zero, 10, 20, 30, 40, 0x0014));
                 DrainDispatcher();
                 Assert.Equal(monitorBounds, ReadWindowBounds(windowHandle));
+            }
+            finally
+            {
+                cursorOverlayWindow.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void FollowMouse_DrawsTriangleWithMacOffsetOnlyOnTheMouseMonitor()
+    {
+        RunOnStaThread(() =>
+        {
+            PixelRect monitorBounds = new(-2560, -200, 0, 1240);
+            DisplayMonitor displayMonitor = new("TESTDISPLAY", monitorBounds, monitorBounds, 144, 144, false);
+            CursorOverlayWindow cursorOverlayWindow = new(displayMonitor, () => { });
+            try
+            {
+                cursorOverlayWindow.Show();
+                BlueCursorView blueCursorView = Assert.IsType<BlueCursorView>(cursorOverlayWindow.Content);
+
+                cursorOverlayWindow.FollowMouse(-1060, 400, 0);
+                Assert.Equal(Visibility.Visible, blueCursorView.BlueCursorTriangle.Visibility);
+                Assert.Equal(1000 + 35, Canvas.GetLeft(blueCursorView.BlueCursorTriangle), 6);
+                Assert.Equal(400 + 25, Canvas.GetTop(blueCursorView.BlueCursorTriangle), 6);
+
+                cursorOverlayWindow.FollowMouse(100, 100, 1.0 / 60);
+                Assert.Equal(Visibility.Hidden, blueCursorView.BlueCursorTriangle.Visibility);
             }
             finally
             {

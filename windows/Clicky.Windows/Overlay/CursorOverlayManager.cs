@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Clicky.Windows.Display;
 
@@ -14,6 +15,7 @@ internal sealed class CursorOverlayManager : IDisposable
     private readonly WinEventCallback foregroundChangedCallback;
     private List<CursorOverlayWindow> cursorOverlayWindows = [];
     private IntPtr foregroundEventHook;
+    private TimeSpan lastRenderingTime;
     private bool isDisposed;
 
     public CursorOverlayManager(DisplayMonitorCatalog displayMonitorCatalog)
@@ -26,6 +28,22 @@ internal sealed class CursorOverlayManager : IDisposable
             Trace.TraceWarning("Could not watch foreground changes; Clicky overlays may be covered by another topmost window.");
         displayMonitorCatalog.MonitorsChanged += RebuildOverlayWindows;
         RebuildOverlayWindows();
+        // Per-frame like the Mac's 16 ms tracking timer, but synced to WPF's own render so motion never tears.
+        CompositionTarget.Rendering += FollowMouseForRenderedFrame;
+    }
+
+    private void FollowMouseForRenderedFrame(object? sender, EventArgs eventArgs)
+    {
+        TimeSpan renderingTime = ((RenderingEventArgs)eventArgs).RenderingTime;
+        // Rendering can fire more than once per frame; an unchanged time means the same frame.
+        if (renderingTime == lastRenderingTime) return;
+        double elapsedSeconds = lastRenderingTime == default ? 0 : (renderingTime - lastRenderingTime).TotalSeconds;
+        lastRenderingTime = renderingTime;
+
+        // PerMonitorV2 makes GetCursorPos report physical virtual-screen pixels, the space DisplayMonitor uses.
+        if (!GetCursorPos(out NativePoint physicalMousePosition)) return;
+        foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows)
+            cursorOverlayWindow.FollowMouse(physicalMousePosition.X, physicalMousePosition.Y, elapsedSeconds);
     }
 
     private void RebuildOverlayWindows()
@@ -80,6 +98,7 @@ internal sealed class CursorOverlayManager : IDisposable
         dispatcher.VerifyAccess();
         if (isDisposed) return;
         isDisposed = true;
+        CompositionTarget.Rendering -= FollowMouseForRenderedFrame;
         displayMonitorCatalog.MonitorsChanged -= RebuildOverlayWindows;
         if (foregroundEventHook != IntPtr.Zero)
         {
@@ -95,12 +114,23 @@ internal sealed class CursorOverlayManager : IDisposable
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
     private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
     private delegate void WinEventCallback(IntPtr eventHook, uint eventType, IntPtr windowHandle,
         int objectId, int childId, uint eventThreadId, uint eventTime);
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr eventHookModule,
         WinEventCallback callback, uint processId, uint threadId, uint flags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out NativePoint point);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

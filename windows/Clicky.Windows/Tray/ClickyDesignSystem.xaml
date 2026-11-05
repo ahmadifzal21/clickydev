@@ -19,6 +19,9 @@
     <SolidColorBrush x:Key="DS.Success" Color="#34D399" />
     <SolidColorBrush x:Key="DS.Warning" Color="#FFB224" />
     <SolidColorBrush x:Key="DS.HoverOverlay" Color="#14FFFFFF" />
+    <!-- DS.Colors.overlayCursorBlue: the companion cursor, its glow, waveform and bubbles. -->
+    <Color x:Key="DS.OverlayCursorBlueColor">#3380FF</Color>
+    <SolidColorBrush x:Key="DS.OverlayCursorBlue" Color="{StaticResource DS.OverlayCursorBlueColor}" />
 
     <CornerRadius x:Key="DS.CornerRadius.Small">6</CornerRadius>
     <CornerRadius x:Key="DS.CornerRadius.Medium">8</CornerRadius>

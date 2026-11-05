@@ -15,6 +15,7 @@ internal sealed class CursorOverlayWindow : Window
 {
     private readonly DisplayMonitor displayMonitor;
     private readonly Action requestMonitorRefresh;
+    private readonly BlueCursorView blueCursorView = new();
     private HwndSource? overlayHwndSource;
     private IntPtr overlayWindowHandle;
 
@@ -35,6 +36,14 @@ internal sealed class CursorOverlayWindow : Window
         Topmost = true;
         Width = displayMonitor.Bounds.Width / displayMonitor.DpiScaleX;
         Height = displayMonitor.Bounds.Height / displayMonitor.DpiScaleY;
+        Content = blueCursorView;
+    }
+
+    /// <summary>Moves the blue cursor for this frame; it is drawn only while the mouse is on this monitor.</summary>
+    public void FollowMouse(double physicalMouseX, double physicalMouseY, double elapsedSeconds)
+    {
+        Point mouseInOverlayDips = OverlayCoordinateMapper.PhysicalPixelsToOverlayDips(displayMonitor, physicalMouseX, physicalMouseY);
+        blueCursorView.FollowMouse(mouseInOverlayDips, displayMonitor.Contains(physicalMouseX, physicalMouseY), elapsedSeconds);
     }
 
     protected override void OnSourceInitialized(EventArgs eventArgs)

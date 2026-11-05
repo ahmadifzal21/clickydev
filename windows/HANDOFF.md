@@ -52,8 +52,10 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T2.3 Blue triangle cursor — not started. Draw into `CursorOverlayWindow` content (the window is
-`IsHitTestVisible=false`; size content in its DIPs). `CursorOverlayManager` owns the windows.
+T2.4 Pointing flight — not started. Add the flight/bubble to `Overlay/BlueCursorView.xaml(.cs)`
+(triangle is `BlueCursorTriangle`, rotation `BlueCursorTriangleRotation`); while flying, skip
+`CursorFollowSpring` in `FollowMouse`. Note: the triangle currently shows even when Show Clicky is off
+(visibility/fade is T2.7).
 
 ## Ticket log (newest last)
 
@@ -89,7 +91,12 @@ T2.3 Blue triangle cursor — not started. Draw into `CursorOverlayWindow` conte
   pins physical bounds, WM_DPICHANGED -> catalog RequestRefresh), `Overlay/CursorOverlayManager.cs` (one window per
   monitor, rebuilt on MonitorsChanged, keeps old windows if a rebuild fails, EVENT_SYSTEM_FOREGROUND hook re-raises
   topmost). App owns the manager. STA native tests in `CursorOverlayWindowTests.cs`.
+- T2.3 done: `Overlay/BlueCursorView.xaml(.cs)` (16x16 triangle at -35°, #3380FF + glow; new DS token
+  `DS.OverlayCursorBlue(Color)`), `Overlay/CursorFollowSpring.cs` (SwiftUI spring response 0.2 / damping 0.6),
+  `Overlay/OverlayCoordinateMapper.cs` (physical px -> overlay DIPs; T2.5 extends it). Manager drives every
+  window from `CompositionTarget.Rendering` + GetCursorPos; triangle at mouse + (35, 25) DIPs, visible only on
+  the mouse's monitor. Idle cost ~5% of one core. Tests in `BlueCursorFollowTests.cs` + overlay window tests.
 
 ## Tracker sync pending
 
-- E2 T2.2 -> testing
+- (none)

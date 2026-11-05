@@ -180,7 +180,10 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/Display/DisplayMonitor.cs` | ~35 | Immutable monitor identity, physical bounds, work area, DPI scales and half-open containment |
 | `windows/Clicky.Windows/Display/PixelRect.cs` | ~10 | Physical pixel rectangle shared by monitor discovery and tray panel placement |
 | `windows/Clicky.Windows/Overlay/CursorOverlayWindow.cs` | ~160 | Transparent WPF host with native click-through/no-activate styles, capture exclusion, physical monitor bounds and DPI refresh notifications |
-| `windows/Clicky.Windows/Overlay/CursorOverlayManager.cs` | ~115 | Per-monitor overlay creation/rebuild/disposal and shared foreground hook to restore topmost ordering |
+| `windows/Clicky.Windows/Overlay/CursorOverlayManager.cs` | ~150 | Per-monitor overlay creation/rebuild/disposal, shared foreground hook to restore topmost ordering, per-frame mouse tracking via `CompositionTarget.Rendering` |
+| `windows/Clicky.Windows/Overlay/BlueCursorView.xaml(.cs)` | ~70 | Port of Mac `BlueCursorView`: blue triangle with glow, trails the mouse at +(35, 25) DIPs, drawn only on the mouse's monitor |
+| `windows/Clicky.Windows/Overlay/CursorFollowSpring.cs` | ~55 | SwiftUI `.spring(response: 0.2, dampingFraction: 0.6)` integrated per frame |
+| `windows/Clicky.Windows/Overlay/OverlayCoordinateMapper.cs` | ~15 | Physical virtual-screen px → one overlay's DIPs |
 | `windows/Clicky.Windows/Companion/CompanionVoiceState.cs` | ~20 | Idle / Listening / Processing / Responding |
 | `windows/Clicky.Windows/Companion/CompanionSystemPrompts.cs` | ~75 | System prompts copied verbatim from `CompanionManager.swift` |
 | `windows/Clicky.Windows/Companion/PointTagParser.cs` | ~80 | Port of `parsePointingCoordinates`, with the same regex |
