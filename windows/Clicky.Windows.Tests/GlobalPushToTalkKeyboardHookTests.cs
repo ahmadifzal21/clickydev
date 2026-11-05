@@ -12,7 +12,7 @@ public sealed class GlobalPushToTalkKeyboardHookTests
     public void InstalledHook_SeesInjectedKeyDownThenUp_AndStopsOnDispose()
     {
         ConcurrentQueue<LowLevelKeyboardEvent> observedEvents = new();
-        GlobalPushToTalkKeyboardHook keyboardHook = new();
+        GlobalPushToTalkKeyboardHook keyboardHook = new(PushToTalkShortcut.Default);
         keyboardHook.KeyboardEventObserved += observedEvents.Enqueue;
 
         Assert.True(keyboardHook.Start());
@@ -31,6 +31,30 @@ public sealed class GlobalPushToTalkKeyboardHookTests
         SendKey(VK_F24, isKeyUp: true);
         Thread.Sleep(200);
         Assert.DoesNotContain(observedEvents, e => e.VirtualKeyCode == VK_F24);
+    }
+
+    [Fact]
+    public void InstalledHook_TurnsInjectedCtrlAltIntoPressedThenReleased()
+    {
+        const ushort VK_LCONTROL = 0xA2, VK_LMENU = 0xA4;
+        ConcurrentQueue<PushToTalkShortcutTransition> observedTransitions = new();
+        using GlobalPushToTalkKeyboardHook keyboardHook = new(PushToTalkShortcut.Default);
+        keyboardHook.ShortcutTransitioned += observedTransitions.Enqueue;
+        Assert.True(keyboardHook.Start());
+        try
+        {
+            SendKey(VK_LCONTROL, isKeyUp: false);
+            SendKey(VK_LMENU, isKeyUp: false);
+        }
+        finally
+        {
+            // Always let go, so a failure can't leave ctrl+alt held down on the test machine.
+            SendKey(VK_LMENU, isKeyUp: true);
+            SendKey(VK_LCONTROL, isKeyUp: true);
+        }
+
+        Assert.True(SpinWait.SpinUntil(() => observedTransitions.Count >= 2, TimeSpan.FromSeconds(5)));
+        Assert.Equal(new[] { PushToTalkShortcutTransition.Pressed, PushToTalkShortcutTransition.Released }, observedTransitions.ToArray());
     }
 
     private static void SendKey(ushort virtualKey, bool isKeyUp)

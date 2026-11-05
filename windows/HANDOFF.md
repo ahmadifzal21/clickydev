@@ -50,7 +50,7 @@ T3.7 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T3.3 — not started (press/release state machine). T3.1-T3.2 committed.
+T3.4 — not started (never swallow keys; reinstall hook after LowLevelHooksTimeout removal). T3.1-T3.3 committed.
 
 ## Ticket log (newest last)
 
@@ -127,8 +127,16 @@ T3.3 — not started (press/release state machine). T3.1-T3.2 committed.
   trigger vk). `TryParse`: '+'-joined, case/space-insensitive, ctrl/control, alt/option, shift, win/windows, and at most one
   of space / a-z / 0-9 / f1-f24; needs >=1 modifier; rejects duplicates/unknowns and returns `Default` (ctrl+alt).
   Config default now uses `PushToTalkShortcut.DefaultShortcutText`. Tests in `PushToTalkShortcutTests.cs`.
+- T3.3 done (T3.3.1-T3.3.4): `Input/PushToTalkShortcutStateMachine.cs` — pure port of Mac `shortcutTransition`, tracking held
+  modifier vks (hook gives no flags). Modifier-only: pressed while required modifiers held by either side (extras allowed),
+  released when one lets go. With a key: pressed on non-repeat key-down with modifiers held, released on that key's up.
+  Repeats (down for an already-held key) ignored. `ResetHeldKeys()` releases + forgets held keys. The hook now takes a
+  `PushToTalkShortcut`, owns the state machine, raises `ShortcutTransitioned` on the hook thread, and installs an
+  EVENT_SYSTEM_FOREGROUND WinEvent on the same thread that calls `ResetHeldKeys` (no stuck press). Tests:
+  `PushToTalkShortcutStateMachineTests.cs` + native ctrl+alt injection in `GlobalPushToTalkKeyboardHookTests.cs`.
 
 ## Tracker sync pending
 
 - E3 T3.1 -> testing
 - E3 T3.2 -> testing
+- E3 T3.3 (and T3.3.1-T3.3.4) -> testing
