@@ -36,9 +36,11 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
    comments explaining *why*, WinForms types fully qualified — implicit WinForms usings are off).
 3. Proof per ticket: `dotnet build Clicky.Windows.sln -c Debug` and `dotnet test` from `windows/`
    must pass. Add xUnit tests for any pure logic (e.g. panel positioning math).
-4. When a ticket is done: commit on branch `windows-port` (message `E2 T2.x: <what>`, no push),
-   then append a line to "Ticket log" and to "Tracker sync pending" below, and update
-   "Current ticket". Do this **before** starting the next ticket so a cut-off loses little.
+4. When a ticket is done: append a line to "Ticket log" and to "Tracker sync pending" below, and
+   update "Current ticket". Then commit on branch `windows-port` (message `E2 T2.x: <what>`, no push).
+   **Codex** can't write `.git` (sandbox): instead write the full commit message to
+   `windows/agent-relay/commit-message.txt` and **exit** — the relay commits everything under
+   `windows/` plus `AGENTS.md` and starts you again for the next ticket. One ticket per run.
 5. Mid-ticket, if you sense you are running low on context or quota, stop coding, write what is
    half-done under "Current ticket" (files touched, what remains), and exit. Don't commit broken
    builds; leave the work uncommitted and say so.

@@ -83,6 +83,14 @@ try {
         Write-Host "[$(Get-Date -Format T)] run $run -> $agent (log: $logPath)"
         $result = Invoke-Agent $agent $logPath
 
+        # Codex's sandbox keeps .git read-only, so it leaves its commit message here and the relay commits.
+        $commitMessagePath = Join-Path $PSScriptRoot 'commit-message.txt'
+        if (Test-Path $commitMessagePath) {
+            & git -C $repoDir add -A -- windows AGENTS.md
+            & git -C $repoDir commit -q -F $commitMessagePath
+            if ($LASTEXITCODE -eq 0) { Remove-Item $commitMessagePath } else { Write-Host 'Relay commit failed; leaving commit-message.txt.' }
+        }
+
         if ($result.HitLimit) {
             $consecutiveLimited++
             if ($consecutiveLimited -ge 2) {
