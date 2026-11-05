@@ -52,12 +52,11 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T2.7 Fade in/out + transient cursor mode — not started. Mac: `OverlayWindowManager.fadeOutAndHideOverlay`
-(0.4 s easeIn), first-appearance 2 s fade-in in `BlueCursorView.onAppear`, and CompanionManager's transient mode
-(overlay shown only during an interaction when "Show Clicky" is off). Hook `IsClickyCursorAlwaysVisible` into
-`CursorOverlayManager`; replace the temporary status wiring in `App.xaml.cs` (`SetCompanionStatus(..., Idle)`).
-Voice/response entry points already exist on the manager: `SetVoiceState`, `SetAudioPowerLevel`,
-`ShowResponseText` / `FinishResponse` / `HideResponse`, `PointAt`.
+T2.8 Tray "Test pointing" debug item — not started. Add it to `Tray/TrayContextMenu.cs`; for each monitor in
+`DisplayMonitorCatalog.Monitors`, point (via `CursorOverlayManager.ShowTransiently` + `PointAt`, waiting for each
+flight to finish, e.g. poll `IsPointing` on frames) at known spots: the four corners inset and the centre, labelled
+with monitor index and spot. Map spots through `OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels` with a
+fake 1280-wide screenshot so the T2.5 path is exercised too. Then `ScheduleTransientHide`.
 
 ## Ticket log (newest last)
 
@@ -114,7 +113,13 @@ Voice/response entry points already exist on the manager: `SetVoiceState`, `SetA
   "..." while empty, hold 6 s after `FinishResponse` then 0.4 s fade; drawn only on the mouse's monitor. Waveform /
   spinner only animate in their state. Manager broadcasts state and re-applies it after overlay rebuilds.
   Smoke: app starts; idle ~8% of one core (was ~5%; per-frame `CompositionTarget.Rendering` is the main cost).
+- T2.7 done: `CursorOverlayManager(catalog, isCursorAlwaysVisible)` owns visibility: Show Clicky on -> 2 s easeIn
+  first-appearance fade-in; `SetCursorAlwaysVisible` shows/hides at once (ignores unchanged values);
+  `ShowTransiently` (interaction start) / `ScheduleTransientHide` (interaction over: waits for any pointing flight,
+  +1 s, 0.4 s easeIn fade, hide). Fades run per frame in `AdvanceFrame` (tests drive it). Rendering is unsubscribed
+  while hidden, so a hidden Clicky costs nothing; `PointAt` is a no-op while hidden. `CompanionStatusChanged`
+  replaces the temporary App status wiring. Smoke: starts, idle ~4% of one core with Show Clicky on.
 
 ## Tracker sync pending
 
-- E2 T2.6 -> testing
+- E2 T2.7 -> testing

@@ -167,7 +167,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `windows/Clicky.Windows/App.xaml.cs` | ~80 | Tray-only entry point. Single-instance guard, loads config, wires tray icon + context menu + companion panel, owns monitor catalog and overlay lifetime, disposes the tray icon first on exit |
+| `windows/Clicky.Windows/App.xaml.cs` | ~80 | Tray-only entry point. Single-instance guard, loads config, wires tray icon + context menu + companion panel, owns monitor catalog and overlay lifetime (Show Clicky setting -> `SetCursorAlwaysVisible`, overlay status -> panel), disposes the tray icon first on exit |
 | `windows/Clicky.Windows/Tray/TrayIconManager.cs` | ~115 | `NotifyIcon` with a code-drawn blue cursor icon. Left-click raises `TrayIconLeftClicked(point)`; right-click shows the context menu |
 | `windows/Clicky.Windows/Tray/TrayContextMenu.cs` | ~75 | Right-click menu: Answer / Pointing / Fallback backend submenus (checked from config), Open config file, config error line, Quit |
 | `windows/Clicky.Windows/Tray/CompanionPanelWindow.xaml(.cs)` | ~520 | Floating dark panel. `WS_EX_NOACTIVATE` (never steals focus), so outside clicks are caught with a `WH_MOUSE_LL` hook and Escape with `RegisterHotKey`, both only while visible. Status, push-to-talk hint, Show Clicky switch, backend segmented pickers, config error banner, Quit |
@@ -180,7 +180,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/Display/DisplayMonitor.cs` | ~35 | Immutable monitor identity, physical bounds, work area, DPI scales and half-open containment |
 | `windows/Clicky.Windows/Display/PixelRect.cs` | ~10 | Physical pixel rectangle shared by monitor discovery and tray panel placement |
 | `windows/Clicky.Windows/Overlay/CursorOverlayWindow.cs` | ~160 | Transparent WPF host with native click-through/no-activate styles, capture exclusion, physical monitor bounds and DPI refresh notifications |
-| `windows/Clicky.Windows/Overlay/CursorOverlayManager.cs` | ~150 | Per-monitor overlay creation/rebuild/disposal, shared foreground hook to restore topmost ordering, per-frame mouse tracking via `CompositionTarget.Rendering` |
+| `windows/Clicky.Windows/Overlay/CursorOverlayManager.cs` | ~340 | Per-monitor overlay creation/rebuild/disposal, shared foreground hook to restore topmost ordering, per-frame mouse tracking via `CompositionTarget.Rendering` (only while visible); Show Clicky / transient mode with Mac fades; broadcasts voice state, response text and `PointAt`; `CompanionStatusChanged` feeds the tray panel |
 | `windows/Clicky.Windows/Overlay/BlueCursorView.xaml(.cs)` | ~450 | Port of Mac `BlueCursorView`: blue triangle with glow, trails the mouse at +(35, 25) DIPs, drawn only on the mouse's monitor; pointing sequence (fly, streamed bubble, hold, fade, fly back) driven per frame; voice-state waveform / spinner / triangle cross-fades; response text bubble (port of `CompanionResponseOverlay`) |
 | `windows/Clicky.Windows/Overlay/PointingFlightArc.cs` | ~60 | Mac bezier flight math (duration, arc, tangent rotation, scale pulse) + landing spot beside target |
 | `windows/Clicky.Windows/Overlay/CursorFollowSpring.cs` | ~65 | SwiftUI `.spring(response, dampingFraction)` integrated per frame (cursor follow, bubble pop) |

@@ -19,9 +19,24 @@ internal sealed class CursorOverlayManager : IDisposable
     private TimeSpan lastRenderingTime;
     private bool isDisposed;
 
-    public CursorOverlayManager(DisplayMonitorCatalog displayMonitorCatalog)
+    // Mac timings: first appearance fades in over 2 s; transient mode waits 1 s after the interaction (and any
+    // pointing flight) ends, then fades out over 0.4 s. Both ease in.
+    private const double FirstAppearanceFadeInSeconds = 2.0;
+    private const double TransientHideDelaySeconds = 1.0;
+    private const double FadeOutSeconds = 0.4;
+    private bool isCursorAlwaysVisible;
+    private double? fadeInElapsedSeconds;
+    private double? transientHideCountdownSeconds;
+    private double? fadeOutElapsedSeconds;
+
+    /// <summary>
+    /// Creates the overlays. With <paramref name="isCursorAlwaysVisible"/> ("Show Clicky") they appear with the Mac's
+    /// first-appearance fade-in; otherwise they stay hidden until <see cref="ShowTransiently"/>.
+    /// </summary>
+    public CursorOverlayManager(DisplayMonitorCatalog displayMonitorCatalog, bool isCursorAlwaysVisible)
     {
         this.displayMonitorCatalog = displayMonitorCatalog;
+        this.isCursorAlwaysVisible = isCursorAlwaysVisible;
         foregroundChangedCallback = HandleForegroundChanged;
         foregroundEventHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero,
             foregroundChangedCallback, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
@@ -29,8 +44,89 @@ internal sealed class CursorOverlayManager : IDisposable
             Trace.TraceWarning("Could not watch foreground changes; Clicky overlays may be covered by another topmost window.");
         displayMonitorCatalog.MonitorsChanged += RebuildOverlayWindows;
         RebuildOverlayWindows();
+        if (isCursorAlwaysVisible)
+        {
+            fadeInElapsedSeconds = 0;
+            ShowOverlays();
+        }
+    }
+
+    /// <summary>Raised when the overlay is shown or hidden, or the voice state changes; the tray panel mirrors it.</summary>
+    public event Action<bool, CompanionVoiceState>? CompanionStatusChanged;
+
+    public bool IsOverlayVisible { get; private set; }
+
+    /// <summary>
+    /// "Show Clicky" toggled. Like the Mac's <c>setClickyCursorEnabled</c>, on shows immediately and off hides
+    /// immediately, dropping any pending transient hide. Unchanged values are ignored so unrelated config saves
+    /// don't hide a transiently shown buddy.
+    /// </summary>
+    public void SetCursorAlwaysVisible(bool isAlwaysVisible)
+    {
+        dispatcher.VerifyAccess();
+        if (isAlwaysVisible == isCursorAlwaysVisible) return;
+        isCursorAlwaysVisible = isAlwaysVisible;
+        transientHideCountdownSeconds = null;
+        if (isAlwaysVisible) ShowOverlays();
+        else HideOverlays();
+    }
+
+    /// <summary>An interaction is starting: keep the buddy up, bringing it back transiently if "Show Clicky" is off.</summary>
+    public void ShowTransiently()
+    {
+        dispatcher.VerifyAccess();
+        transientHideCountdownSeconds = null;
+        if (!IsOverlayVisible || fadeOutElapsedSeconds is not null) ShowOverlays();
+    }
+
+    /// <summary>
+    /// The interaction (including speech) is over. In transient mode, fade the buddy out once any pointing flight
+    /// has landed back at the mouse and a further second has passed; a new <see cref="ShowTransiently"/> cancels it.
+    /// </summary>
+    public void ScheduleTransientHide()
+    {
+        dispatcher.VerifyAccess();
+        if (!isCursorAlwaysVisible && IsOverlayVisible) transientHideCountdownSeconds = TransientHideDelaySeconds;
+    }
+
+    private void ShowOverlays()
+    {
+        fadeOutElapsedSeconds = null;
+        foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows)
+        {
+            cursorOverlayWindow.Opacity = fadeInElapsedSeconds is null ? 1 : 0;
+            try
+            {
+                cursorOverlayWindow.Show();
+            }
+            catch (Win32Exception exception)
+            {
+                Trace.TraceWarning($"Could not show a Clicky overlay: {exception.Message}");
+            }
+        }
+        if (IsOverlayVisible) return;
+        IsOverlayVisible = true;
+        lastRenderingTime = default;
         // Per-frame like the Mac's 16 ms tracking timer, but synced to WPF's own render so motion never tears.
+        // Subscribed only while visible: a hidden Clicky should cost nothing.
         CompositionTarget.Rendering += FollowMouseForRenderedFrame;
+        CompanionStatusChanged?.Invoke(true, currentVoiceState);
+    }
+
+    private void HideOverlays()
+    {
+        fadeInElapsedSeconds = null;
+        fadeOutElapsedSeconds = null;
+        transientHideCountdownSeconds = null;
+        foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows)
+        {
+            cursorOverlayWindow.CancelPointing();
+            cursorOverlayWindow.Hide();
+        }
+        if (!IsOverlayVisible) return;
+        IsOverlayVisible = false;
+        CompositionTarget.Rendering -= FollowMouseForRenderedFrame;
+        CompanionStatusChanged?.Invoke(false, currentVoiceState);
     }
 
     private void FollowMouseForRenderedFrame(object? sender, EventArgs eventArgs)
@@ -43,10 +139,58 @@ internal sealed class CursorOverlayManager : IDisposable
 
         // PerMonitorV2 makes GetCursorPos report physical virtual-screen pixels, the space DisplayMonitor uses.
         if (!GetCursorPos(out NativePoint physicalMousePosition)) return;
+        AdvanceFrame(physicalMousePosition.X, physicalMousePosition.Y, elapsedSeconds);
+    }
+
+    /// <summary>One rendered frame: moves every buddy and steps the overlay fades. Tests drive it directly.</summary>
+    internal void AdvanceFrame(double physicalMouseX, double physicalMouseY, double elapsedSeconds)
+    {
         bool isAnyOverlayPointing = cursorOverlayWindows.Any(cursorOverlayWindow => cursorOverlayWindow.IsPointing);
         foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows)
-            cursorOverlayWindow.FollowMouse(physicalMousePosition.X, physicalMousePosition.Y,
+            cursorOverlayWindow.FollowMouse(physicalMouseX, physicalMouseY,
                 isAnyOverlayPointing && !cursorOverlayWindow.IsPointing, elapsedSeconds);
+
+        if (fadeInElapsedSeconds is double fadeInElapsed)
+        {
+            fadeInElapsed += elapsedSeconds;
+            fadeInElapsedSeconds = fadeInElapsed < FirstAppearanceFadeInSeconds ? fadeInElapsed : null;
+            SetOverlayOpacity(EaseIn(fadeInElapsed / FirstAppearanceFadeInSeconds));
+        }
+
+        if (transientHideCountdownSeconds is double hideCountdown)
+        {
+            // The Mac waits for the flight back to the mouse before starting its one-second pause.
+            hideCountdown = isAnyOverlayPointing ? TransientHideDelaySeconds : hideCountdown - elapsedSeconds;
+            transientHideCountdownSeconds = hideCountdown > 0 ? hideCountdown : null;
+            if (hideCountdown <= 0)
+            {
+                fadeInElapsedSeconds = null;
+                fadeOutElapsedSeconds = 0;
+            }
+        }
+
+        if (fadeOutElapsedSeconds is double fadeOutElapsed)
+        {
+            fadeOutElapsed += elapsedSeconds;
+            if (fadeOutElapsed >= FadeOutSeconds)
+            {
+                HideOverlays();
+                return;
+            }
+            fadeOutElapsedSeconds = fadeOutElapsed;
+            SetOverlayOpacity(1 - EaseIn(fadeOutElapsed / FadeOutSeconds));
+        }
+    }
+
+    private void SetOverlayOpacity(double opacity)
+    {
+        foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows) cursorOverlayWindow.Opacity = opacity;
+    }
+
+    private static double EaseIn(double progress)
+    {
+        double clampedProgress = Math.Clamp(progress, 0, 1);
+        return clampedProgress * clampedProgress;
     }
 
     /// <summary>
@@ -56,6 +200,8 @@ internal sealed class CursorOverlayManager : IDisposable
     public void PointAt(double physicalTargetX, double physicalTargetY, string? bubbleText)
     {
         dispatcher.VerifyAccess();
+        // Hidden overlays don't run frames; callers show the buddy (ShowTransiently) before pointing.
+        if (!IsOverlayVisible) return;
         CursorOverlayWindow? targetOverlayWindow = cursorOverlayWindows.FirstOrDefault(
             cursorOverlayWindow => cursorOverlayWindow.DisplayMonitor.Contains(physicalTargetX, physicalTargetY));
         if (targetOverlayWindow is null)
@@ -76,6 +222,7 @@ internal sealed class CursorOverlayManager : IDisposable
     {
         currentVoiceState = voiceState;
         ForEachCompanionView(blueCursorView => blueCursorView.SetVoiceState(voiceState));
+        CompanionStatusChanged?.Invoke(IsOverlayVisible, voiceState);
     }
 
     public void SetAudioPowerLevel(double audioPowerLevel) =>
@@ -119,6 +266,9 @@ internal sealed class CursorOverlayManager : IDisposable
                 cursorOverlayWindow.BlueCursorView.SetVoiceState(currentVoiceState);
                 if (currentResponseText is not null) cursorOverlayWindow.BlueCursorView.ShowResponseText(currentResponseText);
                 replacementWindows.Add(cursorOverlayWindow);
+                if (!IsOverlayVisible) continue;
+                // Mid-fade, start where the old windows were; the next frame continues the fade.
+                cursorOverlayWindow.Opacity = cursorOverlayWindows.Count > 0 ? cursorOverlayWindows[0].Opacity : 1;
                 cursorOverlayWindow.Show();
             }
         }
@@ -140,7 +290,8 @@ internal sealed class CursorOverlayManager : IDisposable
         if (isDisposed) return;
         dispatcher.BeginInvoke(() =>
         {
-            if (isDisposed) return;
+            // Hidden overlays may not have an HWND yet, and there is nothing to keep on top.
+            if (isDisposed || !IsOverlayVisible) return;
             foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows)
             {
                 try

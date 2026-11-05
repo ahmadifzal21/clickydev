@@ -45,19 +45,19 @@ public partial class App : Application
 
         companionPanelWindow = new CompanionPanelWindow(clickyConfigurationStore);
         companionPanelWindow.QuitRequested += Shutdown;
-        cursorOverlayManager = new CursorOverlayManager(displayMonitorCatalog);
-
-        // Until the cursor overlay exists (step 2), "overlay visible" follows the Show Clicky setting.
-        clickyConfigurationStore.ConfigurationChanged += UpdatePanelStatusFromConfiguration;
+        cursorOverlayManager = new CursorOverlayManager(displayMonitorCatalog,
+            clickyConfigurationStore.CurrentConfiguration.IsClickyCursorAlwaysVisible);
+        cursorOverlayManager.CompanionStatusChanged += companionPanelWindow.SetCompanionStatus;
+        clickyConfigurationStore.ConfigurationChanged += ApplyShowClickySetting;
 
         trayContextMenu = new TrayContextMenu(clickyConfigurationStore, quitRequested: Shutdown);
         trayIconManager = new TrayIconManager(trayContextMenu.ContextMenuStrip);
         trayIconManager.TrayIconLeftClicked += companionPanelWindow.TogglePanel;
     }
 
-    private void UpdatePanelStatusFromConfiguration(ClickyConfiguration clickyConfiguration)
+    private void ApplyShowClickySetting(ClickyConfiguration clickyConfiguration)
     {
-        companionPanelWindow?.SetCompanionStatus(clickyConfiguration.IsClickyCursorAlwaysVisible, CompanionVoiceState.Idle);
+        cursorOverlayManager?.SetCursorAlwaysVisible(clickyConfiguration.IsClickyCursorAlwaysVisible);
     }
 
     protected override void OnExit(ExitEventArgs exitEventArgs)
@@ -68,7 +68,7 @@ public partial class App : Application
 
         if (clickyConfigurationStore is not null)
         {
-            clickyConfigurationStore.ConfigurationChanged -= UpdatePanelStatusFromConfiguration;
+            clickyConfigurationStore.ConfigurationChanged -= ApplyShowClickySetting;
         }
 
         companionPanelWindow?.Close();

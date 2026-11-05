@@ -260,7 +260,7 @@ public sealed class CursorOverlayWindowTests
         RunOnStaThread(() =>
         {
             using DisplayMonitorCatalog displayMonitorCatalog = new();
-            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog);
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: true);
             List<IntPtr> overlayWindowHandles = FindOverlayWindowHandles();
             Assert.Equal(displayMonitorCatalog.Monitors.Count, overlayWindowHandles.Count);
             Assert.All(overlayWindowHandles, windowHandle => Assert.True(IsWindowVisible(windowHandle)));
@@ -270,6 +270,59 @@ public sealed class CursorOverlayWindowTests
             displayMonitorCatalog.RequestRefresh();
             DrainDispatcher();
             Assert.Empty(FindOverlayWindowHandles());
+        });
+    }
+
+    [Fact]
+    public void Manager_TransientModeShowsForAnInteractionThenWaitsAndFadesOut()
+    {
+        RunOnStaThread(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            List<(bool IsVisible, CompanionVoiceState VoiceState)> statusChanges = [];
+            cursorOverlayManager.CompanionStatusChanged += (isVisible, voiceState) => statusChanges.Add((isVisible, voiceState));
+            DisplayMonitor firstMonitor = displayMonitorCatalog.Monitors[0];
+            double mouseX = firstMonitor.Bounds.Left + 10;
+            double mouseY = firstMonitor.Bounds.Top + 10;
+            Assert.False(cursorOverlayManager.IsOverlayVisible);
+            Assert.Empty(FindOverlayWindowHandles().Where(IsWindowVisible));
+
+            cursorOverlayManager.ShowTransiently();
+            cursorOverlayManager.SetVoiceState(CompanionVoiceState.Listening);
+            Assert.True(cursorOverlayManager.IsOverlayVisible);
+            Assert.Equal(displayMonitorCatalog.Monitors.Count, FindOverlayWindowHandles().Count(IsWindowVisible));
+
+            cursorOverlayManager.SetVoiceState(CompanionVoiceState.Idle);
+            cursorOverlayManager.ScheduleTransientHide();
+            cursorOverlayManager.AdvanceFrame(mouseX, mouseY, 0.9);
+            Assert.True(cursorOverlayManager.IsOverlayVisible);
+            // A new interaction before the pause ends keeps the buddy.
+            cursorOverlayManager.ShowTransiently();
+            cursorOverlayManager.AdvanceFrame(mouseX, mouseY, 5);
+            Assert.True(cursorOverlayManager.IsOverlayVisible);
+
+            cursorOverlayManager.ScheduleTransientHide();
+            cursorOverlayManager.AdvanceFrame(mouseX, mouseY, 0.99);
+            cursorOverlayManager.AdvanceFrame(mouseX, mouseY, 0.21);
+            Assert.True(cursorOverlayManager.IsOverlayVisible);
+            cursorOverlayManager.AdvanceFrame(mouseX, mouseY, 0.25);
+            Assert.False(cursorOverlayManager.IsOverlayVisible);
+            Assert.Empty(FindOverlayWindowHandles().Where(IsWindowVisible));
+
+            Assert.Equal(
+            [
+                (true, CompanionVoiceState.Idle), (true, CompanionVoiceState.Listening),
+                (true, CompanionVoiceState.Idle), (false, CompanionVoiceState.Idle),
+            ], statusChanges);
+
+            // "Show Clicky" on shows at once and transient hides no longer apply.
+            cursorOverlayManager.SetCursorAlwaysVisible(true);
+            cursorOverlayManager.ScheduleTransientHide();
+            cursorOverlayManager.AdvanceFrame(mouseX, mouseY, 5);
+            Assert.True(cursorOverlayManager.IsOverlayVisible);
+            cursorOverlayManager.SetCursorAlwaysVisible(false);
+            Assert.False(cursorOverlayManager.IsOverlayVisible);
         });
     }
 
