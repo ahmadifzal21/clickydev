@@ -50,7 +50,7 @@ T3.7 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T3.1 — not started. (E2 is done: T2.1-T2.8 committed; T2.9 is the user's manual check.)
+T3.2 — not started (shortcut parser). T3.1 committed.
 
 ## Ticket log (newest last)
 
@@ -118,6 +118,12 @@ T3.1 — not started. (E2 is done: T2.1-T2.8 committed; T2.9 is the user's manua
   transiently, waits for each full flight (poll `CursorOverlayManager.IsPointing`), then `ScheduleTransientHide`.
   Ignores clicks while running; stops if Show Clicky hides the overlay. Target math tested; the tour itself is manual.
 
+- T3.1 done: `Input/GlobalPushToTalkKeyboardHook.cs` — WH_KEYBOARD_LL on a dedicated background thread with a
+  GetMessage loop (so a busy WPF dispatcher can't stall system typing); `Start()` waits for install and returns success;
+  `KeyboardEventObserved(LowLevelKeyboardEvent(vk, isKeyDown))` fires on the hook thread for KEY*/SYSKEY* down/up
+  (left/right-specific vk, auto-repeat not filtered yet); handler exceptions swallowed; always CallNextHookEx;
+  Dispose posts WM_QUIT, joins, unhooks. Not wired into App yet. Native test injects F24 via SendInput.
+
 ## Tracker sync pending
 
-- (none)
+- E3 T3.1 -> testing
