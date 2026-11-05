@@ -1,6 +1,6 @@
 # Agent handoff — Clicky Windows port
 
-RELAY-STATUS: active
+RELAY-STATUS: complete
 
 <!-- The relay (agent-relay/relay.ps1) stops when the line above reads `RELAY-STATUS: complete`.
      Set it to complete only when every ticket in "Scope" is committed. -->
@@ -50,7 +50,8 @@ T3.7 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T3.6 — not started (drive overlay listening state from `ShortcutTransitioned`). T3.1-T3.5 committed.
+E3 code complete: T3.1-T3.6 committed. T3.7 (hold ctrl+alt on the real machine: listening waveform shows, release ends it,
+normal typing and AltGr unaffected apart from the documented clash) is the user's manual check.
 
 ## Ticket log (newest last)
 
@@ -144,6 +145,10 @@ T3.6 — not started (drive overlay listening state from `ShortcutTransitioned`)
   panel note says so). Panel shows the effective shortcut plus `CompanionPanelText.GetShortcutNote` (invalid shortcut, or
   the AltGr = Ctrl+Alt clash). AGENTS.md Windows section documents push-to-talk + AltGr (there's no windows/README).
   Smoke: app starts with the hook installed. Hook transitions aren't consumed yet (T3.6).
+- T3.6 done: App marshals `ShortcutTransitioned` to the dispatcher: Pressed -> `ShowTransiently` + voice state Listening
+  (waveform; panel status "Listening" via `CompanionStatusChanged`); Released -> Idle + `ScheduleTransientHide` (no voice
+  pipeline yet). Smoke: app running, injected ctrl+alt hold/release, app stays up (overlay is capture-excluded, so the
+  visual check is T3.7).
 
 ## Tracker sync pending
 
@@ -152,3 +157,4 @@ T3.6 — not started (drive overlay listening state from `ShortcutTransitioned`)
 - E3 T3.3 (and T3.3.1-T3.3.4) -> testing
 - E3 T3.4 -> testing
 - E3 T3.5 -> testing
+- E3 T3.6 -> testing

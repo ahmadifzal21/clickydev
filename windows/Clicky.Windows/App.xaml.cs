@@ -55,6 +55,9 @@ public partial class App : Application
         // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
         PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
         pushToTalkKeyboardHook = new GlobalPushToTalkKeyboardHook(pushToTalkShortcut);
+        // Raised on the hook thread, which must return fast; the overlay lives on the UI thread.
+        pushToTalkKeyboardHook.ShortcutTransitioned += shortcutTransition =>
+            Dispatcher.BeginInvoke(() => ApplyPushToTalkTransition(shortcutTransition));
         if (!pushToTalkKeyboardHook.Start())
         {
             Console.WriteLine("Clicky couldn't install its push-to-talk keyboard hook.");
@@ -72,6 +75,29 @@ public partial class App : Application
     private void ApplyShowClickySetting(ClickyConfiguration clickyConfiguration)
     {
         cursorOverlayManager?.SetCursorAlwaysVisible(clickyConfiguration.IsClickyCursorAlwaysVisible);
+    }
+
+    /// <summary>
+    /// Shows the listening state while the shortcut is held (the overlay status also drives the panel).
+    /// Until the voice pipeline exists, release goes straight back to idle and lets a transient buddy fade.
+    /// </summary>
+    private void ApplyPushToTalkTransition(PushToTalkShortcutTransition shortcutTransition)
+    {
+        if (cursorOverlayManager is null)
+        {
+            return;
+        }
+
+        if (shortcutTransition == PushToTalkShortcutTransition.Pressed)
+        {
+            cursorOverlayManager.ShowTransiently();
+            cursorOverlayManager.SetVoiceState(CompanionVoiceState.Listening);
+        }
+        else if (shortcutTransition == PushToTalkShortcutTransition.Released)
+        {
+            cursorOverlayManager.SetVoiceState(CompanionVoiceState.Idle);
+            cursorOverlayManager.ScheduleTransientHide();
+        }
     }
 
     private void ApplyPushToTalkShortcutSetting(ClickyConfiguration clickyConfiguration)
