@@ -1,20 +1,34 @@
 # Agent handoff — Clicky Windows port
 
-RELAY-STATUS: complete
+RELAY-STATUS: active
 
 <!-- The relay (agent-relay/relay.ps1) stops when the line above reads `RELAY-STATUS: complete`.
      Set it to complete only when every ticket in "Scope" is committed. -->
 
 ## Scope
 
-Epic **E4 — Multi-monitor screen capture** (see `PORTING-PLAN.md` step 4; code goes in `Clicky.Windows/ScreenCapture/`).
-Checkpoint: tray "Save debug screenshots" writes one JPEG per monitor, cursor screen first, without Clicky's overlay in them.
-Port from the Mac: `leanring-buddy/CompanionScreenCaptureUtility.swift` (read only).
+Epic **E5 — AI backends + router** (see `PORTING-PLAN.md` step 5 and "Routing"; code goes in `Clicky.Windows/AI/`,
+implementing the existing `ICompanionChatBackend`; settings already exist in `Configuration/ClickyConfiguration.cs`).
+Checkpoint: tray "Ask about my screen (typed)" with a typed question gets an answer from each backend; the cursor points
+when the answer has a [POINT] tag.
+Port from the Mac (read only): `leanring-buddy/ClaudeAPI.swift`, history + POINT handling in `CompanionManager.swift`;
+the Worker's `/chat` contract is in `worker/src/index.ts` (read only). Prompts are in `Companion/CompanionSystemPrompts.cs`,
+tag parsing in `Companion/PointTagParser.cs`, screenshots from `ScreenCapture/`.
 
-Tickets: T4.1 WGC per monitor (T4.1.1-T4.1.5) · T4.2 downscale 1280 / JPEG 0.8 · T4.3 cursor screen first, Mac labels ·
-T4.4 own windows excluded · T4.5 `CompanionScreenCapture` record · T4.6 tray item · T4.7 GDI fallback (T4.7.1 per
-monitor + logged; T4.7.2 HDR / GPU apps is a look on the user's machine). T4.8 (verify on the user's machine) is the
-user's job — never mark it.
+Tickets: T5.1 ClaudeCodeCliChatBackend (`claude -p`: T5.1.1 images as base64 blocks via `--input-format stream-json`;
+T5.1.2 `--system-prompt`, `--model`, no tools, `--no-session-persistence`; T5.1.3 parse the final result from the output
+stream; T5.1.4 history as prior turns; T5.1.5 timeout/cancel kills the process tree; T5.1.6 clear errors for not
+installed / not logged in) · T5.2 CodexCliChatBackend (`codex exec`: T5.2.1 screenshots to temp files, one `-i` each,
+cleaned up; T5.2.2 system prompt, labels and history folded into the prompt; T5.2.3 `--skip-git-repo-check`, read-only
+sandbox, `--ephemeral`, `-o` last message; T5.2.4 timeout/cancel) · T5.3 CloudflareWorkerChatBackend (existing `/chat`
+route, SSE; empty `WorkerBaseUrl` = clear "not set up" error) · T5.4 ChatBackendRouter: per-job routing + one fallback
+attempt (T5.4.1 unit tests with fake backends) · T5.5 conversation history: last 10 exchanges, POINT tag stripped ·
+T5.6 tray "Ask about my screen (typed)" test box (capture -> route -> show reply in the overlay bubble -> PointAt if tagged)
+· T5.7 measure latency per backend (log timings; write the numbers + a keep-a-process-warm recommendation in the Ticket
+log; don't build warm processes unless clearly needed). T5.8 (verify each backend on the user's machine) is the user's
+job — never mark it.
+Use `--help` of the installed `claude` / `codex` to confirm flags before relying on them. Tests must not call the real
+CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Rules for whichever agent is working
 
@@ -32,7 +46,7 @@ user's job — never mark it.
 5. Mid-ticket, if you sense you are running low on context or quota, stop coding, write what is
    half-done under "Current ticket" (files touched, what remains), and exit. Don't commit broken
    builds; leave the work uncommitted and say so.
-6. Tracker: https://claude.ai/artifact/MDLM6aQJTQdjsDWwsPb62X, collection `epics`, doc `E3`.
+6. Tracker: https://claude.ai/artifact/MDLM6aQJTQdjsDWwsPb62X, collection `epics`, doc `E5`.
    Claude: if the ArtifactData tool is available, apply every "Tracker sync pending" entry
    (status `testing` for code-complete tasks/subtasks; pin `if_version`), then clear the list.
    Codex: you can't reach the tracker; just append entries there.
@@ -40,10 +54,7 @@ user's job — never mark it.
 
 ## Current ticket
 
-E4 code complete and machine-verified (T4.7.2, T4.8 run by Claude on the user's PC: laptop 2560x1600 + SuperDisplay
-tablet 2560x1600 at 192 dpi). Cursor screen first on both monitors, Mac labels, WGC 285-480 ms for both monitors in
-parallel; WebGL kiosk colour bars identical in WGC and GDI, and exact under HDR (toggled via DisplayConfig, then
-restored off). Overlay exclusion has a permanent test with a control. Next epic: E5 (AI backends + router).
+E5 not started. Start with T5.1. (E4 is code complete and machine-verified.)
 
 ## Ticket log (newest last)
 
