@@ -23,6 +23,7 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
     private IntPtr keyboardHookHandle;
     private LowLevelKeyboardProc? keyboardHookCallback; // kept in a field so the GC can't collect it while hooked
     private IntPtr foregroundEventHook;
+    private IntPtr desktopSwitchEventHook;
     private WinEventCallback? foregroundEventCallback; // same GC reason
     private PushToTalkShortcutStateMachine shortcutStateMachine; // only touched on the hook thread once started
     private volatile PushToTalkShortcut? pendingShortcut;
@@ -97,6 +98,10 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
         foregroundEventCallback = HandleForegroundChanged;
         foregroundEventHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero,
             foregroundEventCallback, 0, 0, WINEVENT_OUTOFCONTEXT);
+        // Ctrl+Alt+Del, Win+L and UAC switch to the secure desktop without a foreground change here,
+        // and the key-ups happen there, so a desktop switch resets too.
+        desktopSwitchEventHook = SetWinEventHook(EVENT_SYSTEM_DESKTOPSWITCH, EVENT_SYSTEM_DESKTOPSWITCH, IntPtr.Zero,
+            foregroundEventCallback, 0, 0, WINEVENT_OUTOFCONTEXT);
 
         // A thread timer (no window) posts WM_TIMER to this loop.
         UIntPtr reinstallTimerId = SetTimer(IntPtr.Zero, UIntPtr.Zero, (uint)keyboardHookReinstallInterval.TotalMilliseconds, IntPtr.Zero);
@@ -126,6 +131,12 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
         {
             UnhookWinEvent(foregroundEventHook);
             foregroundEventHook = IntPtr.Zero;
+        }
+
+        if (desktopSwitchEventHook != IntPtr.Zero)
+        {
+            UnhookWinEvent(desktopSwitchEventHook);
+            desktopSwitchEventHook = IntPtr.Zero;
         }
 
         UnhookWindowsHookEx(keyboardHookHandle);
@@ -182,7 +193,7 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
         }
     }
 
-    /// <summary>A focus change mid-press can swallow the key-up (see ResetHeldKeys), so release rather than stick.</summary>
+    /// <summary>A focus or desktop change mid-press can swallow the key-up (see ResetHeldKeys), so release rather than stick.</summary>
     private void HandleForegroundChanged(IntPtr eventHook, uint eventType, IntPtr windowHandle,
         int objectId, int childId, uint eventThreadId, uint eventTimeMilliseconds)
     {
@@ -261,6 +272,7 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
     private const uint WM_TIMER = 0x0113;
     private const uint WM_APP_CHANGE_SHORTCUT = 0x8000 + 1; // WM_APP + 1
     private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    private const uint EVENT_SYSTEM_DESKTOPSWITCH = 0x0020;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
 
     private delegate IntPtr LowLevelKeyboardProc(int hookCode, IntPtr keyboardMessage, IntPtr keyboardHookStructPointer);
