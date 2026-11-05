@@ -40,9 +40,10 @@ user's job — never mark it.
 
 ## Current ticket
 
-E4 code complete: T4.1-T4.7.1 committed in one commit. Left for the user: T4.7.2 (HDR monitor / GPU-drawn app look
-right in the debug screenshots) and T4.8 (tray "Save debug screenshots" on every monitor, overlay absent, cursor screen
-first). Next epic: E5 (AI backends + router).
+E4 code complete and machine-verified (T4.7.2, T4.8 run by Claude on the user's PC: laptop 2560x1600 + SuperDisplay
+tablet 2560x1600 at 192 dpi). Cursor screen first on both monitors, Mac labels, WGC 285-480 ms for both monitors in
+parallel; WebGL kiosk colour bars identical in WGC and GDI, and exact under HDR (toggled via DisplayConfig, then
+restored off). Overlay exclusion has a permanent test with a control. Next epic: E5 (AI backends + router).
 
 ## Ticket log (newest last)
 

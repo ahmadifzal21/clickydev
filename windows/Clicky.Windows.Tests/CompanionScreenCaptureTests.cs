@@ -1,6 +1,13 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Threading;
 using Clicky.Windows.Display;
+using Clicky.Windows.Overlay;
 using Clicky.Windows.ScreenCapture;
+using Windows.Graphics.Imaging;
+using Windows.Storage.Streams;
 
 namespace Clicky.Windows.Tests;
 
@@ -122,6 +129,81 @@ public sealed class CompanionScreenCaptureTests
         if (captureException is not null) throw captureException;
     }
 
+    /// <summary>
+    /// An opaque magenta overlay is invisible to the capture; the control (same window with capture exclusion lifted)
+    /// proves the overlay really was on screen, so the zero isn't just an overlay that never drew.
+    /// </summary>
+    [Fact]
+    public void OverlayWindow_IsAbsentFromCaptures_AndPresentWhenExclusionIsLifted()
+    {
+        Exception? captureException = null;
+        Thread captureThread = new(() =>
+        {
+            try
+            {
+                SetThreadDpiAwarenessContext(new IntPtr(-4));
+                using DisplayMonitorCatalog displayMonitorCatalog = new();
+                DisplayMonitor monitor = displayMonitorCatalog.Monitors[0];
+                CursorOverlayWindow magentaOverlayWindow = new(monitor, () => { }) { Background = Brushes.Magenta };
+                try
+                {
+                    magentaOverlayWindow.Show();
+                    WaitForComposition();
+                    Assert.True(MagentaFraction(CaptureMonitorJpeg(monitor)) < 0.01);
+
+                    Assert.True(SetWindowDisplayAffinity(new WindowInteropHelper(magentaOverlayWindow).Handle, WDA_NONE));
+                    WaitForComposition();
+                    Assert.True(MagentaFraction(CaptureMonitorJpeg(monitor)) > 0.9);
+                }
+                finally
+                {
+                    magentaOverlayWindow.Close();
+                }
+            }
+            catch (Exception exception)
+            {
+                captureException = exception;
+            }
+        });
+        captureThread.SetApartmentState(ApartmentState.STA);
+        captureThread.Start();
+        captureThread.Join();
+        if (captureException is not null) throw captureException;
+    }
+
+    private static void WaitForComposition()
+    {
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+        Thread.Sleep(300);
+    }
+
+    /// <summary>Captures off the STA thread (no pumping needed) but with the same PerMonitorV2 context as the app.</summary>
+    private static byte[] CaptureMonitorJpeg(DisplayMonitor monitor) => Task.Run(async () =>
+    {
+        SetThreadDpiAwarenessContext(new IntPtr(-4));
+        IReadOnlyList<CompanionScreenCapture> capturedScreens =
+            await CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync([monitor], CancellationToken.None);
+        return capturedScreens[0].JpegImageBytes;
+    }).GetAwaiter().GetResult();
+
+    private static double MagentaFraction(byte[] jpegImageBytes) => Task.Run(async () =>
+    {
+        using InMemoryRandomAccessStream jpegStream = new();
+        await jpegStream.WriteAsync(jpegImageBytes.AsBuffer());
+        jpegStream.Seek(0);
+        BitmapDecoder jpegDecoder = await BitmapDecoder.CreateAsync(jpegStream);
+        PixelDataProvider pixelData = await jpegDecoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore,
+            new BitmapTransform(), ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
+        byte[] bgraPixelBytes = pixelData.DetachPixelData();
+        int magentaPixelCount = 0;
+        for (int byteOffset = 0; byteOffset < bgraPixelBytes.Length; byteOffset += 4)
+        {
+            bool isMagenta = bgraPixelBytes[byteOffset] > 180 && bgraPixelBytes[byteOffset + 1] < 90 && bgraPixelBytes[byteOffset + 2] > 180;
+            if (isMagenta) magentaPixelCount++;
+        }
+        return (double)magentaPixelCount / (bgraPixelBytes.Length / 4);
+    }).GetAwaiter().GetResult();
+
     /// <summary>Reads width/height from the JPEG start-of-frame marker, so the test checks the encoded file itself.</summary>
     private static (int Width, int Height) ReadJpegSize(byte[] jpegImageBytes)
     {
@@ -144,6 +226,12 @@ public sealed class CompanionScreenCaptureTests
 
     private static DisplayMonitor CreateMonitor(string deviceName, PixelRect bounds) =>
         new(deviceName, bounds, bounds, 96, 96, isPrimary: bounds.Left == 0 && bounds.Top == 0);
+
+    private const uint WDA_NONE = 0;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowDisplayAffinity(IntPtr windowHandle, uint displayAffinity);
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
