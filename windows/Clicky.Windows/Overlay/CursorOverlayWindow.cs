@@ -39,12 +39,31 @@ internal sealed class CursorOverlayWindow : Window
         Content = blueCursorView;
     }
 
-    /// <summary>Moves the blue cursor for this frame; it is drawn only while the mouse is on this monitor.</summary>
-    public void FollowMouse(double physicalMouseX, double physicalMouseY, double elapsedSeconds)
+    public DisplayMonitor DisplayMonitor => displayMonitor;
+
+    public bool IsPointing => blueCursorView.IsPointing;
+
+    /// <summary>
+    /// Moves the blue cursor for this frame; it is drawn while the mouse is on this monitor (unless another overlay
+    /// is pointing) or while this overlay is pointing.
+    /// </summary>
+    public void FollowMouse(double physicalMouseX, double physicalMouseY, bool isAnotherOverlayPointing, double elapsedSeconds)
     {
         Point mouseInOverlayDips = OverlayCoordinateMapper.PhysicalPixelsToOverlayDips(displayMonitor, physicalMouseX, physicalMouseY);
-        blueCursorView.FollowMouse(mouseInOverlayDips, displayMonitor.Contains(physicalMouseX, physicalMouseY), elapsedSeconds);
+        blueCursorView.FollowMouse(mouseInOverlayDips, displayMonitor.Contains(physicalMouseX, physicalMouseY),
+            isAnotherOverlayPointing, elapsedSeconds);
     }
+
+    /// <summary>Flies the buddy to a physical-pixel spot on this monitor and shows <paramref name="bubbleText"/> there.</summary>
+    public void PointAt(double physicalTargetX, double physicalTargetY, string? bubbleText)
+    {
+        Point targetInOverlayDips = OverlayCoordinateMapper.PhysicalPixelsToOverlayDips(displayMonitor, physicalTargetX, physicalTargetY);
+        Size overlaySizeDips = new(displayMonitor.Bounds.Width / displayMonitor.DpiScaleX,
+            displayMonitor.Bounds.Height / displayMonitor.DpiScaleY);
+        blueCursorView.PointAt(targetInOverlayDips, overlaySizeDips, bubbleText);
+    }
+
+    public void CancelPointing() => blueCursorView.CancelPointing();
 
     protected override void OnSourceInitialized(EventArgs eventArgs)
     {

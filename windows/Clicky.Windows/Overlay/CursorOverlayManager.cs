@@ -42,8 +42,29 @@ internal sealed class CursorOverlayManager : IDisposable
 
         // PerMonitorV2 makes GetCursorPos report physical virtual-screen pixels, the space DisplayMonitor uses.
         if (!GetCursorPos(out NativePoint physicalMousePosition)) return;
+        bool isAnyOverlayPointing = cursorOverlayWindows.Any(cursorOverlayWindow => cursorOverlayWindow.IsPointing);
         foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows)
-            cursorOverlayWindow.FollowMouse(physicalMousePosition.X, physicalMousePosition.Y, elapsedSeconds);
+            cursorOverlayWindow.FollowMouse(physicalMousePosition.X, physicalMousePosition.Y,
+                isAnyOverlayPointing && !cursorOverlayWindow.IsPointing, elapsedSeconds);
+    }
+
+    /// <summary>
+    /// Flies the buddy to a physical virtual-screen pixel, on the overlay of the monitor containing it; any other
+    /// overlay's pointing is dropped so only one buddy is ever visible.
+    /// </summary>
+    public void PointAt(double physicalTargetX, double physicalTargetY, string? bubbleText)
+    {
+        dispatcher.VerifyAccess();
+        CursorOverlayWindow? targetOverlayWindow = cursorOverlayWindows.FirstOrDefault(
+            cursorOverlayWindow => cursorOverlayWindow.DisplayMonitor.Contains(physicalTargetX, physicalTargetY));
+        if (targetOverlayWindow is null)
+        {
+            Trace.TraceWarning($"Clicky can't point at ({physicalTargetX}, {physicalTargetY}): it is on no monitor.");
+            return;
+        }
+        foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows)
+            if (cursorOverlayWindow != targetOverlayWindow) cursorOverlayWindow.CancelPointing();
+        targetOverlayWindow.PointAt(physicalTargetX, physicalTargetY, bubbleText);
     }
 
     private void RebuildOverlayWindows()

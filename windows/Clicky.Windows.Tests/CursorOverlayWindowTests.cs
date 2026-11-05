@@ -138,18 +138,81 @@ public sealed class CursorOverlayWindowTests
                 cursorOverlayWindow.Show();
                 BlueCursorView blueCursorView = Assert.IsType<BlueCursorView>(cursorOverlayWindow.Content);
 
-                cursorOverlayWindow.FollowMouse(-1060, 400, 0);
+                cursorOverlayWindow.FollowMouse(-1060, 400, false, 0);
                 Assert.Equal(Visibility.Visible, blueCursorView.BlueCursorTriangle.Visibility);
                 Assert.Equal(1000 + 35, Canvas.GetLeft(blueCursorView.BlueCursorTriangle), 6);
                 Assert.Equal(400 + 25, Canvas.GetTop(blueCursorView.BlueCursorTriangle), 6);
 
-                cursorOverlayWindow.FollowMouse(100, 100, 1.0 / 60);
+                cursorOverlayWindow.FollowMouse(100, 100, false, 1.0 / 60);
                 Assert.Equal(Visibility.Hidden, blueCursorView.BlueCursorTriangle.Visibility);
             }
             finally
             {
                 cursorOverlayWindow.Close();
             }
+        });
+    }
+
+    [Fact]
+    public void PointAt_FliesToTargetSpeaksHoldsAndFliesBackToTheMouse()
+    {
+        RunOnStaThread(() =>
+        {
+            BlueCursorView blueCursorView = new();
+            const double frameSeconds = 1.0 / 60;
+            Point mouse = new(100, 100);
+            blueCursorView.FollowMouse(mouse, true, false, 0);
+
+            blueCursorView.PointAt(new Point(1500, 700), new Size(1920, 1080), "save");
+            Assert.True(blueCursorView.IsPointing);
+            for (double seconds = 0; seconds < 1.5; seconds += frameSeconds)
+                blueCursorView.FollowMouse(mouse, false, false, frameSeconds);
+            // Landed beside the target and visible even though the mouse is not on this monitor.
+            Assert.Equal(1508, Canvas.GetLeft(blueCursorView.BlueCursorTriangle), 6);
+            Assert.Equal(712, Canvas.GetTop(blueCursorView.BlueCursorTriangle), 6);
+            Assert.Equal(Visibility.Visible, blueCursorView.BlueCursorTriangle.Visibility);
+            Assert.Equal(Visibility.Visible, blueCursorView.PointingBubble.Visibility);
+
+            for (double seconds = 0; seconds < 1; seconds += frameSeconds)
+                blueCursorView.FollowMouse(mouse, false, false, frameSeconds);
+            Assert.Equal("save", blueCursorView.PointingBubbleText.Text);
+            Assert.True(blueCursorView.IsPointing);
+
+            // Hold 3 s + fade 0.5 s + return flight of at most 1.4 s.
+            for (double seconds = 0; seconds < 5 && blueCursorView.IsPointing; seconds += frameSeconds)
+                blueCursorView.FollowMouse(mouse, false, false, frameSeconds);
+            Assert.False(blueCursorView.IsPointing);
+            Assert.Equal(Visibility.Hidden, blueCursorView.PointingBubble.Visibility);
+            Assert.Equal(135, Canvas.GetLeft(blueCursorView.BlueCursorTriangle), 6);
+            Assert.Equal(125, Canvas.GetTop(blueCursorView.BlueCursorTriangle), 6);
+            Assert.Equal(Visibility.Hidden, blueCursorView.BlueCursorTriangle.Visibility);
+        });
+    }
+
+    [Fact]
+    public void ReturnFlight_YieldsWhenTheMouseMovesAndOtherOverlaysHideWhileOnePoints()
+    {
+        RunOnStaThread(() =>
+        {
+            BlueCursorView blueCursorView = new();
+            const double frameSeconds = 1.0 / 60;
+            blueCursorView.FollowMouse(new Point(100, 100), true, false, 0);
+            blueCursorView.FollowMouse(new Point(100, 100), true, true, frameSeconds);
+            Assert.Equal(Visibility.Hidden, blueCursorView.BlueCursorTriangle.Visibility);
+
+            blueCursorView.PointAt(new Point(800, 400), new Size(1920, 1080), "x");
+            for (double seconds = 0; seconds < 6 && blueCursorView.PointingBubble.Visibility == Visibility.Hidden; seconds += frameSeconds)
+                blueCursorView.FollowMouse(new Point(100, 100), true, false, frameSeconds);
+            for (double seconds = 0; seconds < 6 && blueCursorView.PointingBubble.Visibility == Visibility.Visible; seconds += frameSeconds)
+                blueCursorView.FollowMouse(new Point(100, 100), true, false, frameSeconds);
+            Assert.True(blueCursorView.IsPointing);
+
+            blueCursorView.FollowMouse(new Point(300, 100), true, false, frameSeconds);
+            Assert.False(blueCursorView.IsPointing);
+
+            blueCursorView.PointAt(new Point(800, 400), new Size(1920, 1080), null);
+            blueCursorView.CancelPointing();
+            Assert.False(blueCursorView.IsPointing);
         });
     }
 

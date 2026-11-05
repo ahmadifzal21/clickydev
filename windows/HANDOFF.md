@@ -52,10 +52,9 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T2.4 Pointing flight — not started. Add the flight/bubble to `Overlay/BlueCursorView.xaml(.cs)`
-(triangle is `BlueCursorTriangle`, rotation `BlueCursorTriangleRotation`); while flying, skip
-`CursorFollowSpring` in `FollowMouse`. Note: the triangle currently shows even when Show Clicky is off
-(visibility/fade is T2.7).
+T2.5 Coordinate mapper — not started. Extend `Overlay/OverlayCoordinateMapper.cs` with screenshot px -> global
+physical px (+ clamping), tests for mixed DPI / negative origins / clamping. Pointing entry point already exists:
+`CursorOverlayManager.PointAt(physicalX, physicalY, bubbleText)` (global physical px; no-op + trace if off-screen).
 
 ## Ticket log (newest last)
 
@@ -96,6 +95,12 @@ T2.4 Pointing flight — not started. Add the flight/bubble to `Overlay/BlueCurs
   `Overlay/OverlayCoordinateMapper.cs` (physical px -> overlay DIPs; T2.5 extends it). Manager drives every
   window from `CompositionTarget.Rendering` + GetCursorPos; triangle at mouse + (35, 25) DIPs, visible only on
   the mouse's monitor. Idle cost ~5% of one core. Tests in `BlueCursorFollowTests.cs` + overlay window tests.
+- T2.4 done: `Overlay/PointingFlightArc.cs` (Mac bezier: 0.6-1.4 s by distance, arc lift min(0.2d, 80), smoothstep,
+  tangent rotation +90, 1.3x sin pulse; landing spot target+(8,12) clamped 20 DIPs inside). `BlueCursorView` runs the
+  sequence per frame: fly -> bubble (11pt, 0.5->1 spring pop, glow, 30-60 ms chars, random Mac phrase if no label) ->
+  hold 3 s -> fade 0.5 s -> fly back; return flight yields if the mouse moves >100 DIPs. Only one buddy visible while
+  pointing. `CursorOverlayManager.PointAt(physX, physY, text)` picks the monitor's overlay and cancels others.
+  `CursorFollowSpring` now takes response/damping + `PlaceAt`. Nothing calls PointAt yet (T2.8 tray item).
 
 ## Tracker sync pending
 
