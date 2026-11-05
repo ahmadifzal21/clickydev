@@ -1,32 +1,30 @@
 # Agent handoff — Clicky Windows port
 
-RELAY-STATUS: complete
+RELAY-STATUS: active
 
 <!-- The relay (agent-relay/relay.ps1) stops when the line above reads `RELAY-STATUS: complete`.
      Set it to complete only when every ticket in "Scope" is committed. -->
 
 ## Scope
 
-Epic **E2 — Cursor overlay and pointing** (see `PORTING-PLAN.md` step 2 and "Coordinates").
-Checkpoint: the blue cursor follows the mouse on every monitor; tray "Test pointing" flies to
-known spots on each monitor at the user's scaling settings.
-Port from the Mac: `leanring-buddy/OverlayWindow.swift` (BlueCursorView look, mouse offset, bezier
-arc flight, bubble) and `CompanionResponseOverlay.swift` (read only — never edit `leanring-buddy/`).
+Epic **E3 — Push-to-talk keyboard hook** (see `PORTING-PLAN.md` step 3; code goes in `Clicky.Windows/Input/`).
+Checkpoint: holding ctrl+alt anywhere shows the listening state; releasing ends it; normal typing is unaffected.
+Port from the Mac: `leanring-buddy/GlobalPushToTalkShortcutMonitor.swift` and `BuddyPushToTalkShortcut.swift`
+(read only — never edit `leanring-buddy/`). Config already has `PushToTalkShortcut` (default `"ctrl+alt"`)
+and the panel already shows it via `CompanionPanelText.FormatShortcutForDisplay`.
 
 Tickets, in order:
-T2.1 Monitor enumeration (physical bounds + DPI per monitor; rebuild overlays on display/DPI change) ·
-T2.2 `Overlay/CursorOverlayWindow`, one per monitor (transparent, click-through, toolwindow,
-no-activate, topmost above taskbar/fullscreen, SetWindowPos in physical px, WDA_EXCLUDEFROMCAPTURE) ·
-T2.3 Blue triangle cursor (BlueCursorView look, follows mouse every frame with the Mac offset,
-drawn only on the monitor containing the mouse) ·
-T2.4 Pointing flight (bezier arc, speech bubble with label, hold, fly back, clear) ·
-T2.5 Coordinate mapper screenshot px → global px → overlay DIPs (+ xUnit tests: mixed DPI,
-negative-origin monitors, clamping) ·
-T2.6 Response bubble, waveform and spinner states ·
-T2.7 Fade in/out + transient cursor mode hooks (`IsClickyCursorAlwaysVisible`; replace the
-temporary status wiring in `App.xaml.cs`) ·
-T2.8 Tray "Test pointing" debug item.
-T2.9 (verify on the user's machine) is the user's job — never mark it.
+T3.1 `GlobalPushToTalkKeyboardHook` (WH_KEYBOARD_LL) on its own thread with a message loop ·
+T3.2 Shortcut parser (`"ctrl+alt"`, `"ctrl+shift+space"`) with xUnit tests ·
+T3.3 Press/release transitions as a pure state machine: T3.3.1 modifier-only combos and left/right key
+variants, T3.3.2 ignore auto-repeat, T3.3.3 release when focus changes mid-press (no stuck state),
+T3.3.4 unit tests on the state machine ·
+T3.4 Never swallow keys (always CallNextHookEx); reinstall the hook after a LowLevelHooksTimeout removal ·
+T3.5 Note the AltGr clash (AltGr = ctrl+alt on many layouts) in panel/README; shortcut configurable
+(re-parse on ConfigurationChanged) and shown in panel ·
+T3.6 Drive the overlay listening state (`CursorOverlayManager` voice state + `ShowTransiently` /
+`ScheduleTransientHide`; status text in the panel).
+T3.7 (verify on the user's machine) is the user's job — never mark it.
 
 ## Rules for whichever agent is working
 
@@ -37,14 +35,14 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 3. Proof per ticket: `dotnet build Clicky.Windows.sln -c Debug` and `dotnet test` from `windows/`
    must pass. Add xUnit tests for any pure logic (e.g. panel positioning math).
 4. When a ticket is done: append a line to "Ticket log" and to "Tracker sync pending" below, and
-   update "Current ticket". Then commit on branch `windows-port` (message `E2 T2.x: <what>`, no push).
+   update "Current ticket". Then commit on branch `windows-port` (message `E3 T3.x: <what>`, no push).
    **Codex** can't write `.git` (sandbox): instead write the full commit message to
    `windows/agent-relay/commit-message.txt` and **exit** — the relay commits everything under
    `windows/` plus `AGENTS.md` and starts you again for the next ticket. One ticket per run.
 5. Mid-ticket, if you sense you are running low on context or quota, stop coding, write what is
    half-done under "Current ticket" (files touched, what remains), and exit. Don't commit broken
    builds; leave the work uncommitted and say so.
-6. Tracker: https://claude.ai/artifact/MDLM6aQJTQdjsDWwsPb62X, collection `epics`, doc `E2`.
+6. Tracker: https://claude.ai/artifact/MDLM6aQJTQdjsDWwsPb62X, collection `epics`, doc `E3`.
    Claude: if the ArtifactData tool is available, apply every "Tracker sync pending" entry
    (status `testing` for code-complete tasks/subtasks; pin `if_version`), then clear the list.
    Codex: you can't reach the tracker; just append entries there.
@@ -52,9 +50,7 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-None — T2.1-T2.8 are committed. T2.9 is the user's manual check: with "Show Clicky" on and off, use tray
-"Test pointing" on every monitor at your real scaling (mixed DPI, a monitor left of / above the primary) and confirm
-the buddy lands just right of and below each spot, the label bubble reads e.g. "screen2 centre", and it flies back.
+T3.1 — not started. (E2 is done: T2.1-T2.8 committed; T2.9 is the user's manual check.)
 
 ## Ticket log (newest last)
 
@@ -124,4 +120,4 @@ the buddy lands just right of and below each spot, the label bubble reads e.g. "
 
 ## Tracker sync pending
 
-- E2 T2.8 -> testing
+- (none)
