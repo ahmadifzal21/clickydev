@@ -173,6 +173,31 @@ public sealed class BlueCursorFollowTests
     }
 
     [Fact]
+    public void PointingTestTour_VisitsThreeSpotsPerMonitorThroughTheScreenshotMapping()
+    {
+        PixelRect landscapeBounds = new(0, 0, 1920, 1080);
+        // Portrait monitor left of and above the primary: the screenshot's long side is its height.
+        PixelRect portraitBounds = new(-1080, -500, 0, 1420);
+        DisplayMonitor[] monitors =
+        [
+            new("PRIMARY", landscapeBounds, landscapeBounds, 144, 144, true),
+            new("PORTRAIT", portraitBounds, portraitBounds, 96, 96, false),
+        ];
+
+        IReadOnlyList<PointingTestTarget> targets = PointingTestTour.BuildTargets(monitors);
+
+        Assert.Equal(
+        [
+            new PointingTestTarget(new Point(60, 60), "screen1 top-left"),
+            new PointingTestTarget(new Point(960, 540), "screen1 centre"),
+            new PointingTestTarget(new Point(1860, 1020), "screen1 bottom-right"),
+            new PointingTestTarget(new Point(-1020, -440), "screen2 top-left"),
+            new PointingTestTarget(new Point(-540, 460), "screen2 centre"),
+            new PointingTestTarget(new Point(-60, 1360), "screen2 bottom-right"),
+        ], targets);
+    }
+
+    [Fact]
     public void ListeningBars_PulseGentlyInSilenceAndGrowWithTheMacProfileWhenSpeaking()
     {
         for (int barIndex = 0; barIndex < 5; barIndex++)

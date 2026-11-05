@@ -50,7 +50,9 @@ public partial class App : Application
         cursorOverlayManager.CompanionStatusChanged += companionPanelWindow.SetCompanionStatus;
         clickyConfigurationStore.ConfigurationChanged += ApplyShowClickySetting;
 
-        trayContextMenu = new TrayContextMenu(clickyConfigurationStore, quitRequested: Shutdown);
+        PointingTestTour pointingTestTour = new(cursorOverlayManager, displayMonitorCatalog);
+        trayContextMenu = new TrayContextMenu(clickyConfigurationStore, testPointingRequested: pointingTestTour.Run,
+            quitRequested: Shutdown);
         trayIconManager = new TrayIconManager(trayContextMenu.ContextMenuStrip);
         trayIconManager.TrayIconLeftClicked += companionPanelWindow.TogglePanel;
     }

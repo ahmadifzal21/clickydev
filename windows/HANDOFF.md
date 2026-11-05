@@ -1,6 +1,6 @@
 # Agent handoff — Clicky Windows port
 
-RELAY-STATUS: active
+RELAY-STATUS: complete
 
 <!-- The relay (agent-relay/relay.ps1) stops when the line above reads `RELAY-STATUS: complete`.
      Set it to complete only when every ticket in "Scope" is committed. -->
@@ -52,11 +52,9 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T2.8 Tray "Test pointing" debug item — not started. Add it to `Tray/TrayContextMenu.cs`; for each monitor in
-`DisplayMonitorCatalog.Monitors`, point (via `CursorOverlayManager.ShowTransiently` + `PointAt`, waiting for each
-flight to finish, e.g. poll `IsPointing` on frames) at known spots: the four corners inset and the centre, labelled
-with monitor index and spot. Map spots through `OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels` with a
-fake 1280-wide screenshot so the T2.5 path is exercised too. Then `ScheduleTransientHide`.
+None — T2.1-T2.8 are committed. T2.9 is the user's manual check: with "Show Clicky" on and off, use tray
+"Test pointing" on every monitor at your real scaling (mixed DPI, a monitor left of / above the primary) and confirm
+the buddy lands just right of and below each spot, the label bubble reads e.g. "screen2 centre", and it flies back.
 
 ## Ticket log (newest last)
 
@@ -119,7 +117,11 @@ fake 1280-wide screenshot so the T2.5 path is exercised too. Then `ScheduleTrans
   +1 s, 0.4 s easeIn fade, hide). Fades run per frame in `AdvanceFrame` (tests drive it). Rendering is unsubscribed
   while hidden, so a hidden Clicky costs nothing; `PointAt` is a no-op while hidden. `CompanionStatusChanged`
   replaces the temporary App status wiring. Smoke: starts, idle ~4% of one core with Show Clicky on.
+- T2.8 done: tray menu "Test pointing" -> `Overlay/PointingTestTour.cs`: per monitor, top-left (40 px inset), centre and
+  bottom-right of a fake 1280-longest-side screenshot, mapped via `ScreenshotPixelsToPhysicalPixels`; shows the buddy
+  transiently, waits for each full flight (poll `CursorOverlayManager.IsPointing`), then `ScheduleTransientHide`.
+  Ignores clicks while running; stops if Show Clicky hides the overlay. Target math tested; the tour itself is manual.
 
 ## Tracker sync pending
 
-- E2 T2.7 -> testing
+- E2 T2.8 -> testing

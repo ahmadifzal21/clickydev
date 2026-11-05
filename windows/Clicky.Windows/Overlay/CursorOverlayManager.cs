@@ -56,6 +56,9 @@ internal sealed class CursorOverlayManager : IDisposable
 
     public bool IsOverlayVisible { get; private set; }
 
+    /// <summary>True while any overlay's buddy is flying to, pointing at, or flying back from a target.</summary>
+    public bool IsPointing => cursorOverlayWindows.Any(cursorOverlayWindow => cursorOverlayWindow.IsPointing);
+
     /// <summary>
     /// "Show Clicky" toggled. Like the Mac's <c>setClickyCursorEnabled</c>, on shows immediately and off hides
     /// immediately, dropping any pending transient hide. Unchanged values are ignored so unrelated config saves

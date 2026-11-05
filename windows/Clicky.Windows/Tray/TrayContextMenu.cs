@@ -14,7 +14,7 @@ internal sealed class TrayContextMenu : IDisposable
 
     public System.Windows.Forms.ContextMenuStrip ContextMenuStrip { get; } = new();
 
-    public TrayContextMenu(ClickyConfigurationStore clickyConfigurationStore, Action quitRequested)
+    public TrayContextMenu(ClickyConfigurationStore clickyConfigurationStore, Action testPointingRequested, Action quitRequested)
     {
         this.clickyConfigurationStore = clickyConfigurationStore;
 
@@ -42,6 +42,8 @@ internal sealed class TrayContextMenu : IDisposable
 
         ContextMenuStrip.Items.Add("Open config file", image: null,
             onClick: (_, _) => BackendRoutingPickerRows.OpenConfigurationFileInEditor(clickyConfigurationStore.ConfigurationFilePath));
+        // Debug: flies to known spots on every monitor to check pointing at the user's scaling settings.
+        ContextMenuStrip.Items.Add("Test pointing", image: null, onClick: (_, _) => testPointingRequested());
         ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         ContextMenuStrip.Items.Add("Quit Clicky", image: null, onClick: (_, _) => quitRequested());
 
