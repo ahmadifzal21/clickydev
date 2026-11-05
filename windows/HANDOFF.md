@@ -50,7 +50,7 @@ T3.7 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T3.2 — not started (shortcut parser). T3.1 committed.
+T3.3 — not started (press/release state machine). T3.1-T3.2 committed.
 
 ## Ticket log (newest last)
 
@@ -123,7 +123,12 @@ T3.2 — not started (shortcut parser). T3.1 committed.
   `KeyboardEventObserved(LowLevelKeyboardEvent(vk, isKeyDown))` fires on the hook thread for KEY*/SYSKEY* down/up
   (left/right-specific vk, auto-repeat not filtered yet); handler exceptions swallowed; always CallNextHookEx;
   Dispose posts WM_QUIT, joins, unhooks. Not wired into App yet. Native test injects F24 via SendInput.
+- T3.2 done: `Input/PushToTalkShortcut.cs` — record (`PushToTalkModifierKeys` flags Control/Alt/Shift/Windows + optional
+  trigger vk). `TryParse`: '+'-joined, case/space-insensitive, ctrl/control, alt/option, shift, win/windows, and at most one
+  of space / a-z / 0-9 / f1-f24; needs >=1 modifier; rejects duplicates/unknowns and returns `Default` (ctrl+alt).
+  Config default now uses `PushToTalkShortcut.DefaultShortcutText`. Tests in `PushToTalkShortcutTests.cs`.
 
 ## Tracker sync pending
 
 - E3 T3.1 -> testing
+- E3 T3.2 -> testing

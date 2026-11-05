@@ -62,7 +62,7 @@ public sealed class ClickyConfiguration
     /// Push-to-talk shortcut held down to talk, e.g. "ctrl+alt" (the Windows equivalent of the
     /// Mac's control+option). Modifier-only combinations are allowed.
     /// </summary>
-    public string PushToTalkShortcut { get; set; } = "ctrl+alt";
+    public string PushToTalkShortcut { get; set; } = Input.PushToTalkShortcut.DefaultShortcutText;
 
     /// <summary>
     /// Mirrors the Mac "Show Clicky" toggle. When false the cursor only appears while
