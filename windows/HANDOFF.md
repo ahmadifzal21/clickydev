@@ -50,7 +50,8 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T2.1 Monitor enumeration — not started. (E1 is done; its log is kept below for reference.)
+T2.2 CursorOverlayWindow — not started. T2.2 must subscribe to `DisplayMonitorCatalog.MonitorsChanged`
+to rebuild its windows and call `RequestRefresh` on WM_DPICHANGED.
 
 ## Ticket log (newest last)
 
@@ -76,6 +77,11 @@ T2.1 Monitor enumeration — not started. (E1 is done; its log is kept below for
 - T1.5 done: `App.xaml.cs` wires TrayContextMenu + TrayIconManager + CompanionPanelWindow; Quit from
   panel or menu shuts down; OnExit disposes the tray icon first. AGENTS.md Windows section updated.
   Smoke run: Clicky.exe launches and stays up (tray clicks not automatable here; T1.6 is manual).
+
+- T2.1 done: `Display/DisplayMonitorCatalog.cs` (EnumDisplayMonitors + GetMonitorInfo +
+  per-axis GetDpiForMonitor, primary first; hidden HWND catches WM_DISPLAYCHANGE / WM_SETTINGCHANGE /
+  WM_DPICHANGED, coalesced refresh on the dispatcher, `MonitorsChanged` event), `Display/DisplayMonitor.cs`,
+  `PixelRect` moved to `Display/`. App owns the catalog. Tests in `DisplayMonitorTests.cs`.
 
 ## Tracker sync pending
 

@@ -4,6 +4,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using Clicky.Windows.Companion;
 using Clicky.Windows.Configuration;
+using Clicky.Windows.Display;
 
 namespace Clicky.Windows.Tray;
 

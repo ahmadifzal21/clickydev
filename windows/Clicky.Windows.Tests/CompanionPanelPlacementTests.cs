@@ -1,4 +1,5 @@
 using Clicky.Windows.Tray;
+using Clicky.Windows.Display;
 
 namespace Clicky.Windows.Tests;
 

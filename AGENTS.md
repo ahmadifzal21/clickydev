@@ -154,6 +154,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 - **App Type**: System-tray only (`ShutdownMode=OnExplicitShutdown`, no main window), single instance via a named mutex
 - **Framework**: WPF for all UI. WinForms is referenced only for `NotifyIcon`, since WPF has no tray icon
 - **DPI**: PerMonitorV2 (in `app.manifest`). Win32 coordinates are physical pixels in virtual-screen space, and each overlay window converts to its own DIPs
+- **Monitor discovery**: `DisplayMonitorCatalog` snapshots physical bounds, work areas and per-axis DPI through Win32; a hidden top-level HWND coalesces display/settings notifications on the WPF dispatcher
 - **AI backends**: `claude -p` (Claude Code CLI, using the user's login), `codex exec -i` (Codex CLI, using the user's login), and optionally the existing Cloudflare Worker `/chat` route. No API keys ship in the app
 - **Routing**: `clicky.config.json` maps each job (`answer`, `pointing`) to a backend, plus a `fallback` backend. It's read from next to `Clicky.exe`, else `%APPDATA%\Clicky\`, and is editable from the tray menu
 - **Voice**: Whisper.net (local) for STT and Edge TTS by default; AssemblyAI / ElevenLabs are optional when keys are set in the config
@@ -174,6 +175,9 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/Tray/BackendRoutingPickerRows.cs` | ~75 | The Answer / Pointing / Fallback picker definitions shared by the panel and tray menu; opens the config file |
 | `windows/Clicky.Windows/Tray/ClickyDesignSystem.xaml` | ~135 | Colors and corner radii from `DesignSystem.swift`, plus shared button / switch / segment styles (hand cursor + hover) |
 | `windows/Clicky.Windows/app.manifest` | ~25 | PerMonitorV2 DPI awareness |
+| `windows/Clicky.Windows/Display/DisplayMonitorCatalog.cs` | ~150 | Win32 monitor enumeration and dispatcher notifications when display geometry or DPI changes |
+| `windows/Clicky.Windows/Display/DisplayMonitor.cs` | ~35 | Immutable monitor identity, physical bounds, work area, DPI scales and half-open containment |
+| `windows/Clicky.Windows/Display/PixelRect.cs` | ~10 | Physical pixel rectangle shared by monitor discovery and tray panel placement |
 | `windows/Clicky.Windows/Companion/CompanionVoiceState.cs` | ~20 | Idle / Listening / Processing / Responding |
 | `windows/Clicky.Windows/Companion/CompanionSystemPrompts.cs` | ~75 | System prompts copied verbatim from `CompanionManager.swift` |
 | `windows/Clicky.Windows/Companion/PointTagParser.cs` | ~80 | Port of `parsePointingCoordinates`, with the same regex |

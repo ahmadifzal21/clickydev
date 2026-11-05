@@ -1,3 +1,5 @@
+using Clicky.Windows.Display;
+
 namespace Clicky.Windows.Tray;
 
 /// <summary>Which edge of a monitor the taskbar (and so the tray icon) sits on.</summary>
@@ -7,14 +9,6 @@ public enum TaskbarEdge
     Top,
     Left,
     Right
-}
-
-/// <summary>An integer rectangle in physical virtual-screen pixels (same space as Win32 RECT).</summary>
-internal readonly record struct PixelRect(int Left, int Top, int Right, int Bottom)
-{
-    public int Width => Right - Left;
-
-    public int Height => Bottom - Top;
 }
 
 /// <summary>

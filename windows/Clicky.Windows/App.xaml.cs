@@ -1,6 +1,7 @@
 using System.Windows;
 using Clicky.Windows.Companion;
 using Clicky.Windows.Configuration;
+using Clicky.Windows.Display;
 using Clicky.Windows.Tray;
 
 namespace Clicky.Windows;
@@ -23,6 +24,7 @@ public partial class App : Application
     private CompanionPanelWindow? companionPanelWindow;
     private TrayContextMenu? trayContextMenu;
     private TrayIconManager? trayIconManager;
+    private DisplayMonitorCatalog? displayMonitorCatalog;
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -36,6 +38,7 @@ public partial class App : Application
         }
 
         clickyConfigurationStore = ClickyConfigurationStore.LoadOrCreateDefault();
+        displayMonitorCatalog = new DisplayMonitorCatalog();
         Console.WriteLine($"Clicky config loaded from {clickyConfigurationStore.ConfigurationFilePath}");
 
         companionPanelWindow = new CompanionPanelWindow(clickyConfigurationStore);
@@ -66,6 +69,7 @@ public partial class App : Application
         }
 
         companionPanelWindow?.Close();
+        displayMonitorCatalog?.Dispose();
         singleInstanceMutex?.Dispose();
         base.OnExit(exitEventArgs);
     }
