@@ -6,6 +6,7 @@ using Clicky.Windows.Input;
 using Clicky.Windows.Overlay;
 using Clicky.Windows.ScreenCapture;
 using Clicky.Windows.Tray;
+using Clicky.Windows.Voice;
 
 namespace Clicky.Windows;
 
@@ -30,6 +31,8 @@ public partial class App : Application
     private DisplayMonitorCatalog? displayMonitorCatalog;
     private CursorOverlayManager? cursorOverlayManager;
     private GlobalPushToTalkKeyboardHook? pushToTalkKeyboardHook;
+    private ISpeechToTextTranscriber? speechToTextTranscriber;
+    private PushToTalkDictation? pushToTalkDictation;
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -53,12 +56,19 @@ public partial class App : Application
         cursorOverlayManager.CompanionStatusChanged += companionPanelWindow.SetCompanionStatus;
         clickyConfigurationStore.ConfigurationChanged += ApplyShowClickySetting;
 
+        speechToTextTranscriber = SpeechToTextTranscriberFactory.Create(clickyConfigurationStore.CurrentConfiguration.Voice);
+        speechToTextTranscriber.StatusChanged += status => Dispatcher.BeginInvoke(() => companionPanelWindow.SetVoiceNote(status));
+        speechToTextTranscriber.Prepare(clickyConfigurationStore.CurrentConfiguration.Voice);
+        clickyConfigurationStore.ConfigurationChanged += ApplyVoiceSettings;
+        pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
+            companionPanelWindow.SetVoiceNote, Dispatcher);
+
         // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
         PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
         pushToTalkKeyboardHook = new GlobalPushToTalkKeyboardHook(pushToTalkShortcut);
         // Raised on the hook thread, which must return fast; the overlay lives on the UI thread.
         pushToTalkKeyboardHook.ShortcutTransitioned += shortcutTransition =>
-            Dispatcher.BeginInvoke(() => ApplyPushToTalkTransition(shortcutTransition));
+            Dispatcher.BeginInvoke(() => pushToTalkDictation.HandleShortcutTransition(shortcutTransition));
         if (!pushToTalkKeyboardHook.Start())
         {
             Console.WriteLine("Clicky couldn't install its push-to-talk keyboard hook.");
@@ -81,27 +91,9 @@ public partial class App : Application
         cursorOverlayManager?.SetCursorAlwaysVisible(clickyConfiguration.IsClickyCursorAlwaysVisible);
     }
 
-    /// <summary>
-    /// Shows the listening state while the shortcut is held (the overlay status also drives the panel).
-    /// Until the voice pipeline exists, release goes straight back to idle and lets a transient buddy fade.
-    /// </summary>
-    private void ApplyPushToTalkTransition(PushToTalkShortcutTransition shortcutTransition)
+    private void ApplyVoiceSettings(ClickyConfiguration clickyConfiguration)
     {
-        if (cursorOverlayManager is null)
-        {
-            return;
-        }
-
-        if (shortcutTransition == PushToTalkShortcutTransition.Pressed)
-        {
-            cursorOverlayManager.ShowTransiently();
-            cursorOverlayManager.SetVoiceState(CompanionVoiceState.Listening);
-        }
-        else if (shortcutTransition == PushToTalkShortcutTransition.Released)
-        {
-            cursorOverlayManager.SetVoiceState(CompanionVoiceState.Idle);
-            cursorOverlayManager.ScheduleTransientHide();
-        }
+        speechToTextTranscriber?.Prepare(clickyConfiguration.Voice);
     }
 
     private async void SaveDebugScreenshots()
@@ -133,9 +125,11 @@ public partial class App : Application
         {
             clickyConfigurationStore.ConfigurationChanged -= ApplyShowClickySetting;
             clickyConfigurationStore.ConfigurationChanged -= ApplyPushToTalkShortcutSetting;
+            clickyConfigurationStore.ConfigurationChanged -= ApplyVoiceSettings;
         }
 
         pushToTalkKeyboardHook?.Dispose();
+        speechToTextTranscriber?.Dispose();
 
         companionPanelWindow?.Close();
         cursorOverlayManager?.Dispose();

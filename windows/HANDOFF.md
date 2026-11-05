@@ -7,7 +7,7 @@ RELAY-STATUS: complete
 
 ## Scope
 
-Epic **E5 — AI backends + router** (see `PORTING-PLAN.md` step 5 and "Routing"; code goes in `Clicky.Windows/AI/`,
+Epic **E6 — Speech-to-text** (current; see "Current ticket"). Previous: epic **E5 — AI backends + router** (see `PORTING-PLAN.md` step 5 and "Routing"; code goes in `Clicky.Windows/AI/`,
 implementing the existing `ICompanionChatBackend`; settings already exist in `Configuration/ClickyConfiguration.cs`).
 Checkpoint: tray "Ask about my screen (typed)" with a typed question gets an answer from each backend; the cursor points
 when the answer has a [POINT] tag.
@@ -54,9 +54,12 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-**E5 agent work complete (T5.1-T5.7 committed).** Only T5.8 remains: the user verifies each backend on their machine via the
-tray "Ask about my screen (typed)" (Codex needs its usage limit to reset; the Worker needs `cloudflareWorker.workerBaseUrl`).
-Next epic is not scoped here yet; see `PORTING-PLAN.md`.
+**E6 (speech-to-text) agent work committed: T6.1, T6.2 (T6.2.1-T6.2.4), T6.4, T6.5.** T6.3 (AssemblyAI) is deliberately
+not built: only if local STT feels slow after E8. T6.6 (verify on the user's machine) is the user's: hold the shortcut, speak,
+release; the panel shows `Heard: "..."` and the console log shows the transcript with timings.
+Open risk for E8: Whisper.net's native DLLs inside the single-file `Clicky.exe` are untested (the publish bundles them;
+whether its loader finds them after self-extract needs a launch of the published exe). Fallback: exclude
+`runtimes/**` from the bundle (`ExcludeFromSingleFile`) so they ship next to the exe.
 
 ## Ticket log (newest last)
 
@@ -229,6 +232,16 @@ Next epic is not scoped here yet; see `PORTING-PLAN.md`.
   shown, [POINT] on the box; Show Clicky off -> overlay still up at 5 s, hides after; turn 2 recalls PELICAN from history.
   Claude Code CLI pass (5.9 s), Codex CLI pass (9.6 s). Worker: not set up -> error bubble shown (expected). Router: Worker
   failing -> fell back to Claude. App launch smoke OK (403 MB working set). Not automatable: seeing the overlay (capture-excluded).
+
+- E6 (2026-11-05): `Voice/` — `MicrophoneRecorder` (NAudio.WinMM 2.2.1 WaveIn, 16 kHz mono PCM16; NAudio 3.x needs net9),
+  `SpeechClip` (pure: 0.3 s minimum, -40 dBFS silence, all-zero = blocked mic, pad to 1.1 s, drop [BLANK_AUDIO]/(noise) markers,
+  Mac level formula), `WhisperModelFile` (own HTTP download from huggingface ggerganov/whisper.cpp for real % progress, .part then
+  rename, model name validated), `WhisperLocalTranscriber` + `SpeechToTextTranscriberFactory` (Whisper only), `MicrophonePrivacy`
+  (ConsentStore keys), `PushToTalkDictation` (replaces App.ApplyPushToTalkTransition). Panel got a voice-note line (transcript,
+  download %, mic errors). T6.2.4 measured with `LiveWhisperTranscriptionTests` (JFK 11 s sample; 3 s slice): CPU base.en 3.9-5.0 s
+  (3 s clip 4.0 s), small.en 18-26 s; Vulkan base.en 0.45-0.59 s (3 s clip 0.36 s), small.en 1.3-1.8 s (3 s clip 1.0 s), first
+  Vulkan decode 11.5 s for small.en -> warm-up decode on silence after load. Decision: ship Whisper.net.Runtime.Vulkan (CPU fallback
+  is automatic). Publish grows to ~116 MB.
 
 ## Tracker sync pending
 

@@ -97,8 +97,11 @@ Backends: `claude-code-cli`, `codex-cli`, `cloudflare-worker`.
 5. **AI backends + router**: Claude Code CLI, Codex CLI, Worker; fallback; history (last 10).
    Tray item "Ask about my screen (typed)" for testing without voice.
 6. **Speech-to-text**: NAudio mic capture → Whisper.net in-process (`base.en` first, `small.en`
-   if accuracy is short), CPU runtime, model downloaded on first use and loaded once at start-up.
+   if accuracy is short), model downloaded on first use and loaded once at start-up.
    Transcribes on key-up. AssemblyAI is added only if this feels too slow end to end.
+   Measured (2026-11-05, Intel Arc): CPU base.en ~4 s even for a 3 s clip (whisper.cpp encodes a 30 s
+   window), small.en 18-26 s; Vulkan base.en 0.36 s / small.en ~1 s for a 3 s clip. Vulkan runtime is
+   shipped, with CPU as Whisper.net's automatic fallback.
 7. **Text-to-speech**: Kokoro-82M (v1.0, ONNX) in-process via the KokoroSharp NuGet package,
    model loaded once at start-up, CPU package first (DirectML if CPU is too slow). ElevenLabs is
    added only if this feels too slow or flat end to end.

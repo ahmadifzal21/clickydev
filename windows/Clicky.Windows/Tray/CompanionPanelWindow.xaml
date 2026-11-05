@@ -66,6 +66,9 @@
                     <!-- Invalid-shortcut / AltGr note (CompanionPanelText.GetShortcutNote). -->
                     <TextBlock x:Name="ShortcutNoteTextBlock" Margin="0,6,0,0" TextWrapping="Wrap" FontSize="11"
                                Foreground="{StaticResource DS.TextTertiary}" Visibility="Collapsed" />
+                    <!-- Last transcript, speech model download progress, or microphone problem. -->
+                    <TextBlock x:Name="VoiceNoteTextBlock" Margin="0,6,0,0" TextWrapping="Wrap" FontSize="11"
+                               Foreground="{StaticResource DS.TextTertiary}" Visibility="Collapsed" />
                 </StackPanel>
             </Border>
 

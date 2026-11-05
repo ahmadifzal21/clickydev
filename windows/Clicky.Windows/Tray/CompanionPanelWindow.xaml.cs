@@ -74,6 +74,13 @@ public partial class CompanionPanelWindow : Window
         StatusDotGlow.Color = statusDotBrush.Color;
     }
 
+    /// <summary>One line under the push-to-talk hint: the last transcript, model download progress or a mic problem.</summary>
+    public void SetVoiceNote(string voiceNote)
+    {
+        VoiceNoteTextBlock.Text = voiceNote;
+        VoiceNoteTextBlock.Visibility = string.IsNullOrEmpty(voiceNote) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
     private readonly List<(BackendRoutingPickerRow PickerRow, System.Windows.Controls.Primitives.ToggleButton SegmentButton, ChatBackendKind? Option)> backendSegmentButtons = [];
 
     /// <summary>
