@@ -7,24 +7,14 @@ RELAY-STATUS: complete
 
 ## Scope
 
-Epic **E3 — Push-to-talk keyboard hook** (see `PORTING-PLAN.md` step 3; code goes in `Clicky.Windows/Input/`).
-Checkpoint: holding ctrl+alt anywhere shows the listening state; releasing ends it; normal typing is unaffected.
-Port from the Mac: `leanring-buddy/GlobalPushToTalkShortcutMonitor.swift` and `BuddyPushToTalkShortcut.swift`
-(read only — never edit `leanring-buddy/`). Config already has `PushToTalkShortcut` (default `"ctrl+alt"`)
-and the panel already shows it via `CompanionPanelText.FormatShortcutForDisplay`.
+Epic **E4 — Multi-monitor screen capture** (see `PORTING-PLAN.md` step 4; code goes in `Clicky.Windows/ScreenCapture/`).
+Checkpoint: tray "Save debug screenshots" writes one JPEG per monitor, cursor screen first, without Clicky's overlay in them.
+Port from the Mac: `leanring-buddy/CompanionScreenCaptureUtility.swift` (read only).
 
-Tickets, in order:
-T3.1 `GlobalPushToTalkKeyboardHook` (WH_KEYBOARD_LL) on its own thread with a message loop ·
-T3.2 Shortcut parser (`"ctrl+alt"`, `"ctrl+shift+space"`) with xUnit tests ·
-T3.3 Press/release transitions as a pure state machine: T3.3.1 modifier-only combos and left/right key
-variants, T3.3.2 ignore auto-repeat, T3.3.3 release when focus changes mid-press (no stuck state),
-T3.3.4 unit tests on the state machine ·
-T3.4 Never swallow keys (always CallNextHookEx); reinstall the hook after a LowLevelHooksTimeout removal ·
-T3.5 Note the AltGr clash (AltGr = ctrl+alt on many layouts) in panel/README; shortcut configurable
-(re-parse on ConfigurationChanged) and shown in panel ·
-T3.6 Drive the overlay listening state (`CursorOverlayManager` voice state + `ShowTransiently` /
-`ScheduleTransientHide`; status text in the panel).
-T3.7 (verify on the user's machine) is the user's job — never mark it.
+Tickets: T4.1 WGC per monitor (T4.1.1-T4.1.5) · T4.2 downscale 1280 / JPEG 0.8 · T4.3 cursor screen first, Mac labels ·
+T4.4 own windows excluded · T4.5 `CompanionScreenCapture` record · T4.6 tray item · T4.7 GDI fallback (T4.7.1 per
+monitor + logged; T4.7.2 HDR / GPU apps is a look on the user's machine). T4.8 (verify on the user's machine) is the
+user's job — never mark it.
 
 ## Rules for whichever agent is working
 
@@ -35,7 +25,7 @@ T3.7 (verify on the user's machine) is the user's job — never mark it.
 3. Proof per ticket: `dotnet build Clicky.Windows.sln -c Debug` and `dotnet test` from `windows/`
    must pass. Add xUnit tests for any pure logic (e.g. panel positioning math).
 4. When a ticket is done: append a line to "Ticket log" and to "Tracker sync pending" below, and
-   update "Current ticket". Then commit on branch `windows-port` (message `E3 T3.x: <what>`, no push).
+   update "Current ticket". Then commit on branch `windows-port` (message `E<n> T<n>.x: <what>`, no push).
    **Codex** can't write `.git` (sandbox): instead write the full commit message to
    `windows/agent-relay/commit-message.txt` and **exit** — the relay commits everything under
    `windows/` plus `AGENTS.md` and starts you again for the next ticket. One ticket per run.
@@ -50,8 +40,9 @@ T3.7 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-E3 code complete: T3.1-T3.6 committed. T3.7 (hold ctrl+alt on the real machine: listening waveform shows, release ends it,
-normal typing and AltGr unaffected apart from the documented clash) is the user's manual check.
+E4 code complete: T4.1-T4.7.1 committed in one commit. Left for the user: T4.7.2 (HDR monitor / GPU-drawn app look
+right in the debug screenshots) and T4.8 (tray "Save debug screenshots" on every monitor, overlay absent, cursor screen
+first). Next epic: E5 (AI backends + router).
 
 ## Ticket log (newest last)
 
@@ -149,6 +140,11 @@ normal typing and AltGr unaffected apart from the documented clash) is the user'
   (waveform; panel status "Listening" via `CompanionStatusChanged`); Released -> Idle + `ScheduleTransientHide` (no voice
   pipeline yet). Smoke: app running, injected ctrl+alt hold/release, app stays up (overlay is capture-excluded, so the
   visual check is T3.7).
+
+- E4 done (T4.1-T4.7.1): `ScreenCapture/` — WGC per monitor in parallel (cursor off, border on), GDI CopyFromScreen
+  fallback per monitor, one WinRT JPEG encoder (Mac sizing, quality 0.8), cursor screen first + verbatim Mac labels,
+  panel now also WDA_EXCLUDEFROMCAPTURE, tray "Save debug screenshots" (+ capture-log.txt with method/timing).
+  TFM is now net8.0-windows10.0.19041.0. Single 2560x1600 monitor here: WGC ~210 ms; real-capture tests in xUnit.
 
 ## Tracker sync pending
 

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 using Clicky.Windows.Companion;
 using Clicky.Windows.Display;
+using Clicky.Windows.ScreenCapture;
 
 namespace Clicky.Windows.Overlay;
 
@@ -15,8 +16,6 @@ internal readonly record struct PointingTestTarget(Point PhysicalPoint, string L
 /// </summary>
 internal sealed class PointingTestTour(CursorOverlayManager cursorOverlayManager, DisplayMonitorCatalog displayMonitorCatalog)
 {
-    /// <summary>Screenshots are downscaled to this longest side before the model sees them (PORTING-PLAN step 1).</summary>
-    private const int ScreenshotMaximumDimensionPixels = 1280;
     private const int CornerInsetScreenshotPixels = 40;
     private bool isRunning;
 
@@ -27,9 +26,8 @@ internal sealed class PointingTestTour(CursorOverlayManager cursorOverlayManager
         for (int monitorIndex = 0; monitorIndex < monitors.Count; monitorIndex++)
         {
             DisplayMonitor monitor = monitors[monitorIndex];
-            double downscale = (double)ScreenshotMaximumDimensionPixels / Math.Max(monitor.Bounds.Width, monitor.Bounds.Height);
-            int screenshotWidth = (int)Math.Round(monitor.Bounds.Width * downscale);
-            int screenshotHeight = (int)Math.Round(monitor.Bounds.Height * downscale);
+            (int screenshotWidth, int screenshotHeight) =
+                CompanionScreenCaptureLayout.ComputeScreenshotSize(monitor.Bounds.Width, monitor.Bounds.Height);
             (double X, double Y, string Spot)[] spots =
             [
                 (CornerInsetScreenshotPixels, CornerInsetScreenshotPixels, "top-left"),

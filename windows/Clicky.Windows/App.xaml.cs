@@ -4,6 +4,7 @@ using Clicky.Windows.Configuration;
 using Clicky.Windows.Display;
 using Clicky.Windows.Input;
 using Clicky.Windows.Overlay;
+using Clicky.Windows.ScreenCapture;
 using Clicky.Windows.Tray;
 
 namespace Clicky.Windows;
@@ -67,7 +68,7 @@ public partial class App : Application
 
         PointingTestTour pointingTestTour = new(cursorOverlayManager, displayMonitorCatalog);
         trayContextMenu = new TrayContextMenu(clickyConfigurationStore, testPointingRequested: pointingTestTour.Run,
-            quitRequested: Shutdown);
+            saveDebugScreenshotsRequested: SaveDebugScreenshots, quitRequested: Shutdown);
         trayIconManager = new TrayIconManager(trayContextMenu.ContextMenuStrip);
         trayIconManager.TrayIconLeftClicked += companionPanelWindow.TogglePanel;
     }
@@ -97,6 +98,19 @@ public partial class App : Application
         {
             cursorOverlayManager.SetVoiceState(CompanionVoiceState.Idle);
             cursorOverlayManager.ScheduleTransientHide();
+        }
+    }
+
+    private async void SaveDebugScreenshots()
+    {
+        if (displayMonitorCatalog is null) return;
+        try
+        {
+            await DebugScreenshotWriter.SaveAndOpenFolderAsync(displayMonitorCatalog.Monitors);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show($"Clicky couldn't save debug screenshots: {exception.Message}", "Clicky");
         }
     }
 

@@ -197,6 +197,12 @@ public partial class CompanionPanelWindow : Window
         int extendedWindowStyle = GetWindowLong(panelWindowHandle, GWL_EXSTYLE);
         SetWindowLong(panelWindowHandle, GWL_EXSTYLE, extendedWindowStyle | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
 
+        // Like the Mac's SCContentFilter, keep Clicky's own panel out of the screenshots the model sees.
+        if (!SetWindowDisplayAffinity(panelWindowHandle, WDA_EXCLUDEFROMCAPTURE))
+        {
+            System.Diagnostics.Trace.TraceWarning("Could not exclude the Clicky panel from screen capture.");
+        }
+
         panelHwndSource = HwndSource.FromHwnd(panelWindowHandle);
         panelHwndSource.AddHook(HandlePanelWindowMessage);
     }
@@ -314,6 +320,7 @@ public partial class CompanionPanelWindow : Window
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_SHOWWINDOW = 0x0040;
+    private const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
     private static readonly IntPtr HWND_TOPMOST = new(-1);
 
     private delegate IntPtr LowLevelMouseProc(int hookCode, IntPtr mouseMessage, IntPtr mouseHookStructPointer);
@@ -356,6 +363,10 @@ public partial class CompanionPanelWindow : Window
         public uint Time;
         public IntPtr ExtraInfo;
     }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowDisplayAffinity(IntPtr windowHandle, uint displayAffinity);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(IntPtr windowHandle, int index);

@@ -162,6 +162,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 - **Tray panel**: left-click the tray icon toggles a borderless, non-activating companion panel placed next to the taskbar on whichever edge/monitor it's on; right-click opens a menu with the same backend pickers. Panel UI avoids ComboBox/Popup because popups misbehave in a window that never activates
 - **Multi-agent hand-off**: `windows/HANDOFF.md` records the current ticket and progress for whichever agent picks up the work next; `windows/agent-relay/relay.ps1` alternates Claude Code and Codex CLI headlessly when one hits its usage limit
 - **Push-to-talk**: `GlobalPushToTalkKeyboardHook` installs a listen-only `WH_KEYBOARD_LL` hook on its own message-loop thread (never swallows keys; reinstalled every 10 s because Windows silently drops slow hooks; a foreground change mid-press releases). `pushToTalkShortcut` in the config (default `ctrl+alt`, e.g. `ctrl+shift+space`) is parsed by `PushToTalkShortcut`; invalid values fall back to ctrl+alt. Ctrl+Alt is AltGr on many layouts, so typing AltGr characters also triggers it; the panel says so
+- **Screen capture**: `CompanionScreenCaptureUtility` captures every monitor in parallel with Windows Graphics Capture (one frame per monitor via `IGraphicsCaptureItemInterop.CreateForMonitor`, system cursor off, yellow border stays on until package identity in step 9), falling back per monitor to GDI `CopyFromScreen`. Both paths encode through one WinRT `BitmapEncoder` (Mac sizing: long side 1280, other side truncated; JPEG 0.8). Clicky's overlays and panel set `WDA_EXCLUDEFROMCAPTURE`, which both paths honour. The project targets `net8.0-windows10.0.19041.0` for the WinRT APIs
 - **Shared with Mac verbatim**: both system prompts and the `[POINT:x,y:label:screenN]` regex. If you change one, change both
 
 ### Windows Key Files
@@ -170,7 +171,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 |------|-------|---------|
 | `windows/Clicky.Windows/App.xaml.cs` | ~80 | Tray-only entry point. Single-instance guard, loads config, wires tray icon + context menu + companion panel, owns monitor catalog and overlay lifetime (Show Clicky setting -> `SetCursorAlwaysVisible`, overlay status -> panel), disposes the tray icon first on exit |
 | `windows/Clicky.Windows/Tray/TrayIconManager.cs` | ~115 | `NotifyIcon` with a code-drawn blue cursor icon. Left-click raises `TrayIconLeftClicked(point)`; right-click shows the context menu |
-| `windows/Clicky.Windows/Tray/TrayContextMenu.cs` | ~75 | Right-click menu: Answer / Pointing / Fallback backend submenus (checked from config), Open config file, config error line, Quit |
+| `windows/Clicky.Windows/Tray/TrayContextMenu.cs` | ~75 | Right-click menu: Answer / Pointing / Fallback backend submenus (checked from config), Open config file, Test pointing, Save debug screenshots, config error line, Quit |
 | `windows/Clicky.Windows/Tray/CompanionPanelWindow.xaml(.cs)` | ~520 | Floating dark panel. `WS_EX_NOACTIVATE` (never steals focus), so outside clicks are caught with a `WH_MOUSE_LL` hook and Escape with `RegisterHotKey`, both only while visible. Status, push-to-talk hint, Show Clicky switch, backend segmented pickers, config error banner, Quit |
 | `windows/Clicky.Windows/Tray/CompanionPanelPlacement.cs` | ~90 | Pure placement math: detects the taskbar edge from the monitor work area and positions the panel next to the tray click on any edge / monitor (physical pixels) |
 | `windows/Clicky.Windows/Input/GlobalPushToTalkKeyboardHook.cs` | ~330 | Low-level keyboard hook thread (GetMessage loop, foreground WinEvent, periodic reinstall, `ChangeShortcut` posted to the thread); raises `ShortcutTransitioned` on the hook thread |
@@ -189,6 +190,11 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/Overlay/PointingFlightArc.cs` | ~60 | Mac bezier flight math (duration, arc, tangent rotation, scale pulse) + landing spot beside target |
 | `windows/Clicky.Windows/Overlay/CursorFollowSpring.cs` | ~65 | SwiftUI `.spring(response, dampingFraction)` integrated per frame (cursor follow, bubble pop) |
 | `windows/Clicky.Windows/Overlay/OverlayCoordinateMapper.cs` | ~35 | Screenshot px → global physical px (clamped onto the captured monitor) → one overlay's DIPs |
+| `windows/Clicky.Windows/ScreenCapture/CompanionScreenCaptureUtility.cs` | ~180 | Port of `CompanionScreenCaptureUtility.swift`: cursor screen first, parallel WGC per monitor with GDI fallback, shared downscale + JPEG encoder |
+| `windows/Clicky.Windows/ScreenCapture/WindowsGraphicsMonitorCapture.cs` | ~120 | WGC: D3D11 device (hardware, else WARP), capture item per HMONITOR, one frame copied to a `SoftwareBitmap` |
+| `windows/Clicky.Windows/ScreenCapture/CompanionScreenCaptureLayout.cs` | ~50 | Pure Mac screenshot sizing, cursor-first ordering and verbatim screen labels (also used by `PointingTestTour`) |
+| `windows/Clicky.Windows/ScreenCapture/CompanionScreenCapture.cs` | ~30 | Capture record: JPEG, label, captured monitor bounds, screenshot size, method and duration |
+| `windows/Clicky.Windows/ScreenCapture/DebugScreenshotWriter.cs` | ~45 | Tray "Save debug screenshots": JPEGs + `capture-log.txt` in `%TEMP%\Clicky\debug-screenshots\<time>`, opened in Explorer |
 | `windows/Clicky.Windows/Companion/CompanionVoiceState.cs` | ~20 | Idle / Listening / Processing / Responding |
 | `windows/Clicky.Windows/Companion/CompanionSystemPrompts.cs` | ~75 | System prompts copied verbatim from `CompanionManager.swift` |
 | `windows/Clicky.Windows/Companion/PointTagParser.cs` | ~80 | Port of `parsePointingCoordinates`, with the same regex |
