@@ -210,10 +210,4 @@ Next epic is not scoped here yet; see `PORTING-PLAN.md`.
 
 ## Tracker sync pending
 
-- E5 T5.1 (T5.1.1-T5.1.6) -> testing
-- E5 T5.2 (T5.2.1-T5.2.4) -> testing
-- E5 T5.3 -> testing
-- E5 T5.4 (T5.4.1) -> testing
-- E5 T5.5 -> testing
-- E5 T5.6 -> testing
-- E5 T5.7 -> testing (numbers in Ticket log)
+(none; E5 T5.1-T5.7 synced to `testing` on 2026-11-05)
