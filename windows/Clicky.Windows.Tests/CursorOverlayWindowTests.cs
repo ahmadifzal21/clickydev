@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using Clicky.Windows.Companion;
 using Clicky.Windows.Display;
 using Clicky.Windows.Overlay;
 
@@ -186,6 +187,43 @@ public sealed class CursorOverlayWindowTests
             Assert.Equal(135, Canvas.GetLeft(blueCursorView.BlueCursorTriangle), 6);
             Assert.Equal(125, Canvas.GetTop(blueCursorView.BlueCursorTriangle), 6);
             Assert.Equal(Visibility.Hidden, blueCursorView.BlueCursorTriangle.Visibility);
+        });
+    }
+
+    [Fact]
+    public void VoiceStates_AnimateOnlyTheirOwnIndicatorAndResponseBubbleAutoHides()
+    {
+        RunOnStaThread(() =>
+        {
+            BlueCursorView blueCursorView = new();
+            const double frameSeconds = 1.0 / 60;
+            Assert.Equal(24, blueCursorView.ProcessingSpinner.Children.Count);
+
+            blueCursorView.SetVoiceState(CompanionVoiceState.Listening);
+            blueCursorView.SetAudioPowerLevel(1);
+            for (int frame = 0; frame < 30; frame++) blueCursorView.FollowMouse(new Point(100, 100), true, false, frameSeconds);
+            double middleBarHeight = ((System.Windows.Shapes.Rectangle)blueCursorView.ListeningWaveform.Children[2]).Height;
+            Assert.InRange(middleBarHeight, 12.9, 14.5);
+            Assert.Equal(0, blueCursorView.ProcessingSpinnerRotation.Angle);
+
+            blueCursorView.SetVoiceState(CompanionVoiceState.Processing);
+            blueCursorView.FollowMouse(new Point(100, 100), true, false, 0.2);
+            Assert.NotEqual(0, blueCursorView.ProcessingSpinnerRotation.Angle);
+            Assert.Equal(Visibility.Visible, blueCursorView.ProcessingSpinner.Visibility);
+
+            blueCursorView.ShowResponseText("");
+            Assert.Equal("...", blueCursorView.ResponseBubbleText.Text);
+            blueCursorView.ShowResponseText("open settings");
+            blueCursorView.FollowMouse(new Point(100, 100), false, false, frameSeconds);
+            Assert.Equal(Visibility.Hidden, blueCursorView.ResponseBubble.Visibility);
+            blueCursorView.FollowMouse(new Point(100, 100), true, false, frameSeconds);
+            Assert.Equal(Visibility.Visible, blueCursorView.ResponseBubble.Visibility);
+
+            blueCursorView.FinishResponse();
+            blueCursorView.FollowMouse(new Point(100, 100), true, false, 6.2);
+            Assert.InRange(blueCursorView.ResponseBubble.Opacity, 0.4, 0.6);
+            blueCursorView.FollowMouse(new Point(100, 100), true, false, 0.3);
+            Assert.Equal(Visibility.Hidden, blueCursorView.ResponseBubble.Visibility);
         });
     }
 

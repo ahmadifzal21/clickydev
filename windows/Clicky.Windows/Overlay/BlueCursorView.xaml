@@ -1,5 +1,5 @@
-<!-- Port of BlueCursorView in leanring-buddy/OverlayWindow.swift: the companion's blue triangle and its
-     pointing bubble. The waveform and spinner join this canvas in later tickets. -->
+<!-- Port of BlueCursorView in leanring-buddy/OverlayWindow.swift: the companion's blue triangle, pointing bubble,
+     listening waveform and processing spinner, plus the CompanionResponseOverlay.swift text bubble. -->
 <UserControl x:Class="Clicky.Windows.Overlay.BlueCursorView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -10,6 +10,30 @@
         <ResourceDictionary Source="../Tray/ClickyDesignSystem.xaml" />
     </UserControl.Resources>
     <Canvas>
+        <!-- CompanionResponseOverlayView: 13pt text, max 300 wide, on a 95% surface card with a soft drop shadow. -->
+        <Border x:Name="ResponseBubble"
+                CornerRadius="{StaticResource DS.CornerRadius.Large}"
+                Padding="14,10"
+                BorderThickness="0.8"
+                Visibility="Hidden">
+            <Border.Background>
+                <SolidColorBrush Color="{Binding Color, Source={StaticResource DS.Surface1}}" Opacity="0.95" />
+            </Border.Background>
+            <Border.BorderBrush>
+                <SolidColorBrush Color="{Binding Color, Source={StaticResource DS.BorderSubtle}}" Opacity="0.5" />
+            </Border.BorderBrush>
+            <Border.Effect>
+                <DropShadowEffect Color="Black" Opacity="0.35" BlurRadius="32" ShadowDepth="8" Direction="270" />
+            </Border.Effect>
+            <TextBlock x:Name="ResponseBubbleText"
+                       MaxWidth="300"
+                       FontSize="13"
+                       Foreground="{StaticResource DS.TextPrimary}"
+                       TextWrapping="Wrap"
+                       LineStackingStrategy="BlockLineHeight"
+                       LineHeight="19" />
+        </Border>
+
         <!-- Mac navigation bubble: 11pt medium white on cursor blue, left edge 10 right of the buddy, centred 18 below. -->
         <Border x:Name="PointingBubble"
                 Background="{StaticResource DS.OverlayCursorBlue}"
@@ -53,5 +77,44 @@
                                   Opacity="1" />
             </Path.Effect>
         </Path>
+
+        <!-- BlueCursorWaveformView: five 2-wide bars, 2 apart, centred on the buddy while listening. -->
+        <StackPanel x:Name="ListeningWaveform"
+                    Orientation="Horizontal"
+                    Height="16"
+                    Opacity="0"
+                    Visibility="Hidden">
+            <StackPanel.Resources>
+                <Style TargetType="Rectangle">
+                    <Setter Property="Width" Value="2" />
+                    <Setter Property="Height" Value="3" />
+                    <Setter Property="RadiusX" Value="1" />
+                    <Setter Property="RadiusY" Value="1" />
+                    <Setter Property="Margin" Value="0,0,2,0" />
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                    <Setter Property="Fill" Value="{StaticResource DS.OverlayCursorBlue}" />
+                </Style>
+            </StackPanel.Resources>
+            <StackPanel.Effect>
+                <DropShadowEffect Color="{StaticResource DS.OverlayCursorBlueColor}" ShadowDepth="0" BlurRadius="12" Opacity="0.6" />
+            </StackPanel.Effect>
+            <Rectangle />
+            <Rectangle />
+            <Rectangle />
+            <Rectangle />
+            <Rectangle Margin="0" />
+        </StackPanel>
+
+        <!-- BlueCursorSpinnerView: a 14-wide arc fading in around the circle; segments are built in code. -->
+        <Canvas x:Name="ProcessingSpinner"
+                Opacity="0"
+                Visibility="Hidden">
+            <Canvas.RenderTransform>
+                <RotateTransform x:Name="ProcessingSpinnerRotation" />
+            </Canvas.RenderTransform>
+            <Canvas.Effect>
+                <DropShadowEffect Color="{StaticResource DS.OverlayCursorBlueColor}" ShadowDepth="0" BlurRadius="12" Opacity="0.6" />
+            </Canvas.Effect>
+        </Canvas>
     </Canvas>
 </UserControl>

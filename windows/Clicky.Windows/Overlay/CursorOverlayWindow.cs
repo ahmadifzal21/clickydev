@@ -37,9 +37,16 @@ internal sealed class CursorOverlayWindow : Window
         Width = displayMonitor.Bounds.Width / displayMonitor.DpiScaleX;
         Height = displayMonitor.Bounds.Height / displayMonitor.DpiScaleY;
         Content = blueCursorView;
+        PixelRect workArea = displayMonitor.WorkArea;
+        blueCursorView.WorkAreaInOverlayDips = new Rect(
+            OverlayCoordinateMapper.PhysicalPixelsToOverlayDips(displayMonitor, workArea.Left, workArea.Top),
+            OverlayCoordinateMapper.PhysicalPixelsToOverlayDips(displayMonitor, workArea.Right, workArea.Bottom));
     }
 
     public DisplayMonitor DisplayMonitor => displayMonitor;
+
+    /// <summary>The companion view, so the manager can push voice state and response text to every overlay.</summary>
+    public BlueCursorView BlueCursorView => blueCursorView;
 
     public bool IsPointing => blueCursorView.IsPointing;
 

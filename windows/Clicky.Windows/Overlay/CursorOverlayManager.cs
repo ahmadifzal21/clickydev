@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Clicky.Windows.Companion;
 using Clicky.Windows.Display;
 
 namespace Clicky.Windows.Overlay;
@@ -67,6 +68,44 @@ internal sealed class CursorOverlayManager : IDisposable
         targetOverlayWindow.PointAt(physicalTargetX, physicalTargetY, bubbleText);
     }
 
+    // Remembered so overlays rebuilt after a display change show the same state.
+    private CompanionVoiceState currentVoiceState = CompanionVoiceState.Idle;
+    private string? currentResponseText;
+
+    public void SetVoiceState(CompanionVoiceState voiceState)
+    {
+        currentVoiceState = voiceState;
+        ForEachCompanionView(blueCursorView => blueCursorView.SetVoiceState(voiceState));
+    }
+
+    public void SetAudioPowerLevel(double audioPowerLevel) =>
+        ForEachCompanionView(blueCursorView => blueCursorView.SetAudioPowerLevel(audioPowerLevel));
+
+    /// <summary>Shows or updates the streamed reply; every overlay gets it and the mouse's monitor draws it.</summary>
+    public void ShowResponseText(string accumulatedResponseText)
+    {
+        currentResponseText = accumulatedResponseText;
+        ForEachCompanionView(blueCursorView => blueCursorView.ShowResponseText(accumulatedResponseText));
+    }
+
+    public void FinishResponse()
+    {
+        currentResponseText = null;
+        ForEachCompanionView(blueCursorView => blueCursorView.FinishResponse());
+    }
+
+    public void HideResponse()
+    {
+        currentResponseText = null;
+        ForEachCompanionView(blueCursorView => blueCursorView.HideResponse());
+    }
+
+    private void ForEachCompanionView(Action<BlueCursorView> applyToView)
+    {
+        dispatcher.VerifyAccess();
+        foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows) applyToView(cursorOverlayWindow.BlueCursorView);
+    }
+
     private void RebuildOverlayWindows()
     {
         dispatcher.VerifyAccess();
@@ -77,6 +116,8 @@ internal sealed class CursorOverlayManager : IDisposable
             foreach (DisplayMonitor displayMonitor in displayMonitorCatalog.Monitors)
             {
                 CursorOverlayWindow cursorOverlayWindow = new(displayMonitor, displayMonitorCatalog.RequestRefresh);
+                cursorOverlayWindow.BlueCursorView.SetVoiceState(currentVoiceState);
+                if (currentResponseText is not null) cursorOverlayWindow.BlueCursorView.ShowResponseText(currentResponseText);
                 replacementWindows.Add(cursorOverlayWindow);
                 cursorOverlayWindow.Show();
             }

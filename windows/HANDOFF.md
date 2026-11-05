@@ -52,9 +52,12 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T2.6 Response bubble, waveform and spinner states — not started. Port from Mac `OverlayWindow.swift`
-(`BlueCursorWaveformView`, `BlueCursorSpinnerView`, triangle visible only in idle/responding) and read
-`CompanionResponseOverlay.swift`. Voice state type: `Companion/CompanionVoiceState.cs`.
+T2.7 Fade in/out + transient cursor mode — not started. Mac: `OverlayWindowManager.fadeOutAndHideOverlay`
+(0.4 s easeIn), first-appearance 2 s fade-in in `BlueCursorView.onAppear`, and CompanionManager's transient mode
+(overlay shown only during an interaction when "Show Clicky" is off). Hook `IsClickyCursorAlwaysVisible` into
+`CursorOverlayManager`; replace the temporary status wiring in `App.xaml.cs` (`SetCompanionStatus(..., Idle)`).
+Voice/response entry points already exist on the manager: `SetVoiceState`, `SetAudioPowerLevel`,
+`ShowResponseText` / `FinishResponse` / `HideResponse`, `PointAt`.
 
 ## Ticket log (newest last)
 
@@ -104,7 +107,14 @@ T2.6 Response bubble, waveform and spinner states — not started. Port from Mac
 - T2.5 done: `OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels(monitor, ScreenshotPixelCoordinate, w, h)`
   (scale by monitor px / screenshot px, add monitor origin, clamp onto the monitor's last pixel like the Mac's clamp).
   Tests: mixed per-axis DPI, negative origins, clamping, zero-size screenshot rejected (`BlueCursorFollowTests.cs`).
+- T2.6 done: `BlueCursorView` adds the listening waveform (5 bars, Mac `barHeight` formula, power eased over 80 ms),
+  processing spinner (trimmed 0.15-0.85 arc as 24 opacity-graded segments since WPF has no angular gradient,
+  0.8 s/turn) and triangle cross-fades by `CompanionVoiceState` (0.25 / 0.15 s easeIn). Response bubble ports the
+  (Mac-unused) `CompanionResponseOverlay`: 13pt card, max 300, mouse + (22, 6), flips/clamps in the work area,
+  "..." while empty, hold 6 s after `FinishResponse` then 0.4 s fade; drawn only on the mouse's monitor. Waveform /
+  spinner only animate in their state. Manager broadcasts state and re-applies it after overlay rebuilds.
+  Smoke: app starts; idle ~8% of one core (was ~5%; per-frame `CompositionTarget.Rendering` is the main cost).
 
 ## Tracker sync pending
 
-- E2 T2.5 -> testing (commit 4540b4b)
+- E2 T2.6 -> testing

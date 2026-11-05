@@ -153,4 +153,33 @@ public sealed class BlueCursorFollowTests
         Assert.Throws<ArgumentOutOfRangeException>(() => OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels(
             displayMonitor, new ScreenshotPixelCoordinate(1, 1), 0, 720));
     }
+
+    [Theory]
+    // Room to spare: 22 right, 6 below the mouse.
+    [InlineData(100, 100, 122, 106)]
+    // Right edge: flips to the left of the mouse.
+    [InlineData(1800, 100, 1478, 106)]
+    // Bottom edge (taskbar work area ends at 1040): goes above the mouse.
+    [InlineData(100, 1000, 122, 914)]
+    // Top-left corner beside a flipped bubble still clamps inside the work area.
+    [InlineData(250, 50, 0, 56)]
+    public void ResponseBubble_FollowsTheMacPanelOffsetsFlipsAtEdgesAndStaysInTheWorkArea(
+        double mouseX, double mouseY, double expectedLeft, double expectedTop)
+    {
+        Rect workArea = new(0, 0, 1920, 1040);
+        Point bubbleTopLeft = BlueCursorView.ResponseBubbleTopLeft(new Point(mouseX, mouseY), new Size(300, 80),
+            mouseX == 250 ? new Rect(0, 0, 400, 1040) : workArea);
+        Assert.Equal(new Point(expectedLeft, expectedTop), bubbleTopLeft);
+    }
+
+    [Fact]
+    public void ListeningBars_PulseGentlyInSilenceAndGrowWithTheMacProfileWhenSpeaking()
+    {
+        for (int barIndex = 0; barIndex < 5; barIndex++)
+            Assert.InRange(BlueCursorView.ListeningBarHeight(barIndex, 0, 1.23), 3, 4.5);
+        // Middle bar: phase 2 * 0.35 gives an idle pulse of (sin(0.7) + 1) / 2 * 1.5 on top of the full 10.
+        Assert.Equal(3 + 10 + (Math.Sin(0.7) + 1) / 2 * 1.5, BlueCursorView.ListeningBarHeight(2, 1, 0), 6);
+        double edgeBarHeight = BlueCursorView.ListeningBarHeight(0, 1, 0);
+        Assert.InRange(edgeBarHeight, 3 + 4, 3 + 4 + 1.5);
+    }
 }
