@@ -50,4 +50,18 @@
     <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.1" />
   </ItemGroup>
 
+  <!-- Whisper.net looks for its native DLLs only in runtimes\ next to the exe, not in the folder the single-file
+       bundle extracts to (a bundled publish fails with "Native Library not found in default paths"). So publish
+       ships Clicky.exe plus a runtimes\ folder holding just the win-x64 CPU and Vulkan builds. -->
+  <Target Name="KeepWhisperNativeLibrariesBesideExe" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes'))
+                                        And !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Contains('win-x64'))" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
+                             Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes'))"
+                             ExcludeFromSingleFile="true" />
+    </ItemGroup>
+  </Target>
+
 </Project>

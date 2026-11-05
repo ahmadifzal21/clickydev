@@ -16,23 +16,25 @@ internal sealed class PushToTalkDictation
     private readonly CursorOverlayManager cursorOverlayManager;
     private readonly ISpeechToTextTranscriber speechToTextTranscriber;
     private readonly Action<string> showVoiceNote;
-    private readonly MicrophoneRecorder microphoneRecorder = new();
+    private readonly MicrophoneRecorder microphoneRecorder;
 
     /// <summary>Bumped on every press, so a slow transcription from an earlier press can't overwrite a newer state.</summary>
     private int dictationGeneration;
 
     public PushToTalkDictation(CursorOverlayManager cursorOverlayManager, ISpeechToTextTranscriber speechToTextTranscriber,
-        Action<string> showVoiceNote, Dispatcher dispatcher)
+        Action<string> showVoiceNote, Dispatcher dispatcher, MicrophoneRecorder? microphoneRecorder = null)
     {
+        this.microphoneRecorder = microphoneRecorder ?? new MicrophoneRecorder();
         this.cursorOverlayManager = cursorOverlayManager;
         this.speechToTextTranscriber = speechToTextTranscriber;
         this.showVoiceNote = showVoiceNote;
         // Levels arrive on NAudio's callback thread; the waveform lives on the UI thread.
-        microphoneRecorder.AudioPowerLevelChanged += audioPowerLevel =>
+        this.microphoneRecorder.AudioPowerLevelChanged += audioPowerLevel =>
             dispatcher.BeginInvoke(() => cursorOverlayManager.SetAudioPowerLevel(audioPowerLevel));
     }
 
-    public void HandleShortcutTransition(PushToTalkShortcutTransition shortcutTransition)
+    /// <summary>The returned task finishes when a release has been transcribed (the app ignores it; tests await it).</summary>
+    public Task HandleShortcutTransition(PushToTalkShortcutTransition shortcutTransition)
     {
         if (shortcutTransition == PushToTalkShortcutTransition.Pressed)
         {
@@ -40,8 +42,10 @@ internal sealed class PushToTalkDictation
         }
         else if (shortcutTransition == PushToTalkShortcutTransition.Released)
         {
-            _ = StopRecordingAndTranscribeAsync();
+            return StopRecordingAndTranscribeAsync();
         }
+
+        return Task.CompletedTask;
     }
 
     private void StartRecording()
@@ -116,6 +120,7 @@ internal sealed class PushToTalkDictation
     {
         if (voiceNote is not null)
         {
+            Console.WriteLine($"Push-to-talk: {voiceNote}");
             showVoiceNote(voiceNote);
         }
 

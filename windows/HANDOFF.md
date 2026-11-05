@@ -57,9 +57,7 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 **E6 (speech-to-text) agent work committed: T6.1, T6.2 (T6.2.1-T6.2.4), T6.4, T6.5.** T6.3 (AssemblyAI) is deliberately
 not built: only if local STT feels slow after E8. T6.6 (verify on the user's machine) is the user's: hold the shortcut, speak,
 release; the panel shows `Heard: "..."` and the console log shows the transcript with timings.
-Open risk for E8: Whisper.net's native DLLs inside the single-file `Clicky.exe` are untested (the publish bundles them;
-whether its loader finds them after self-extract needs a launch of the published exe). Fallback: exclude
-`runtimes/**` from the bundle (`ExcludeFromSingleFile`) so they ship next to the exe.
+Single-file publish: verified. Whisper's natives ship in `runtimes\` beside `Clicky.exe` (see Ticket log, E6 verification).
 
 ## Ticket log (newest last)
 
@@ -242,6 +240,18 @@ whether its loader finds them after self-extract needs a launch of the published
   (3 s clip 4.0 s), small.en 18-26 s; Vulkan base.en 0.45-0.59 s (3 s clip 0.36 s), small.en 1.3-1.8 s (3 s clip 1.0 s), first
   Vulkan decode 11.5 s for small.en -> warm-up decode on silence after load. Decision: ship Whisper.net.Runtime.Vulkan (CPU fallback
   is automatic). Publish grows to ~116 MB.
+
+- E6 verification (2026-11-05): tests for every `Voice/` module, 100% line + branch coverage (coverlet), 261/261 green over
+  12 repeated runs. Seams added: `MicrophoneRecorder(createWaveIn, getInputDeviceCount)`, `MicrophonePrivacy.GetBlockedMessage(roots)`,
+  `WhisperModelFile.EnsureDownloadedAsync(..., httpClient, folder)`, `WhisperLocalTranscriber(ensureModelDownloadedAsync)`,
+  `PushToTalkDictation(..., microphoneRecorder)` whose handler now returns a Task. Real-Whisper tests use offline System.Speech audio
+  (Whisper hallucinates "you" on pure silence; the app never sends that, the -40 dBFS gate rejects it). Hardened the old flaky
+  `OverlayWindow_IsAbsentFromCaptures_AndPresentWhenExclusionIsLifted` (failed ~1 in 6 with or without E6 tests: one 300 ms wait for
+  composition) to retry up to ~3 s. Live app: debug build + injected Ctrl+Alt while playing speech through the speakers ->
+  "Transcribed 3.3 s in 419 ms". Published exe: bundled natives failed ("Native Library not found in default paths"), so the csproj
+  now publishes them to `runtimes\` beside the exe (78 MB exe + ~62 MB natives); then "Please open the settings menu." in 589 ms,
+  load + warm-up 1.6 s on Vulkan; with `runtimes\` hidden, push-to-talk reports "Couldn't transcribe: ... failed to load" (no hang).
+  Load failures are now also written to the log.
 
 ## Tracker sync pending
 

@@ -11,9 +11,27 @@ internal sealed class MicrophoneRecorder
 {
     private readonly object recordedSamplesLock = new();
     private List<float> recordedSamples = [];
-    private WaveInEvent? activeWaveIn;
+    private IWaveIn? activeWaveIn;
     private TaskCompletionSource? recordingStoppedCompletion;
     private double currentAudioPowerLevel;
+    private readonly Func<IWaveIn> createWaveIn;
+    private readonly Func<int> getInputDeviceCount;
+
+    public MicrophoneRecorder() : this(CreateDefaultMicrophoneWaveIn, GetDefaultInputDeviceCount)
+    {
+    }
+
+    internal static IWaveIn CreateDefaultMicrophoneWaveIn() =>
+        new WaveInEvent { WaveFormat = new WaveFormat(SpeechClip.SampleRateHertz, 16, 1), BufferMilliseconds = 50 };
+
+    internal static int GetDefaultInputDeviceCount() => WaveInEvent.DeviceCount;
+
+    /// <summary>Takes the device factory and count so tests can stand in for the sound card.</summary>
+    internal MicrophoneRecorder(Func<IWaveIn> createWaveIn, Func<int> getInputDeviceCount)
+    {
+        this.createWaveIn = createWaveIn;
+        this.getInputDeviceCount = getInputDeviceCount;
+    }
 
     /// <summary>Raised on the NAudio callback thread with the Mac-style 0..1 level, about every 50 ms.</summary>
     public event Action<double>? AudioPowerLevelChanged;
@@ -28,7 +46,7 @@ internal sealed class MicrophoneRecorder
             return;
         }
 
-        if (WaveInEvent.DeviceCount == 0)
+        if (getInputDeviceCount() == 0)
         {
             throw new MicrophoneUnavailableException("Clicky can't find a microphone. Plug one in or turn one on in Windows sound settings.");
         }
@@ -39,11 +57,7 @@ internal sealed class MicrophoneRecorder
         }
 
         currentAudioPowerLevel = 0;
-        WaveInEvent waveIn = new()
-        {
-            WaveFormat = new WaveFormat(SpeechClip.SampleRateHertz, 16, 1),
-            BufferMilliseconds = 50
-        };
+        IWaveIn waveIn = createWaveIn();
         TaskCompletionSource stoppedCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         waveIn.DataAvailable += HandleWaveInDataAvailable;
         waveIn.RecordingStopped += (_, _) => stoppedCompletion.TrySetResult();
@@ -68,7 +82,7 @@ internal sealed class MicrophoneRecorder
     /// <summary>Stops recording and returns everything captured since <see cref="Start"/>, as -1..1 floats.</summary>
     public async Task<float[]> StopAsync()
     {
-        WaveInEvent? waveIn = activeWaveIn;
+        IWaveIn? waveIn = activeWaveIn;
         TaskCompletionSource? stoppedCompletion = recordingStoppedCompletion;
         activeWaveIn = null;
         recordingStoppedCompletion = null;

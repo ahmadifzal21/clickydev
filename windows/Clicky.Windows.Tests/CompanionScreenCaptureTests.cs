@@ -152,8 +152,16 @@ public sealed class CompanionScreenCaptureTests
                     Assert.True(MagentaFraction(CaptureMonitorJpeg(monitor)) < 0.01);
 
                     Assert.True(SetWindowDisplayAffinity(new WindowInteropHelper(magentaOverlayWindow).Handle, WDA_NONE));
-                    WaitForComposition();
-                    Assert.True(MagentaFraction(CaptureMonitorJpeg(monitor)) > 0.9);
+                    // Under a busy parallel test run (CPU, and GPU from the Whisper tests) the compositor can take longer than
+                    // one 300 ms wait to draw the window, so retry for up to ~3 s before failing.
+                    double magentaFractionWithoutExclusion = 0;
+                    for (int captureAttempt = 0; captureAttempt < 10 && magentaFractionWithoutExclusion <= 0.9; captureAttempt++)
+                    {
+                        WaitForComposition();
+                        magentaFractionWithoutExclusion = MagentaFraction(CaptureMonitorJpeg(monitor));
+                    }
+
+                    Assert.True(magentaFractionWithoutExclusion > 0.9, $"Only {magentaFractionWithoutExclusion:P0} of the capture was magenta.");
                 }
                 finally
                 {

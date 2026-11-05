@@ -12,14 +12,17 @@ internal static class MicrophonePrivacy
     public const string FixInstructions =
         "Open Settings > Privacy & security > Microphone and turn on \"Microphone access\" and \"Let desktop apps access your microphone\".";
 
-    private const string ConsentStoreKeyPath = @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone";
+    internal const string ConsentStoreKeyPath = @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone";
 
     /// <summary>A message naming the switch that's off, or null if none of them reads "Deny".</summary>
-    public static string? GetBlockedMessage()
+    public static string? GetBlockedMessage() => GetBlockedMessage(Registry.LocalMachine, Registry.CurrentUser);
+
+    /// <summary>Same, reading from the given roots so tests can point it at a scratch registry key.</summary>
+    internal static string? GetBlockedMessage(RegistryKey localMachineRoot, RegistryKey currentUserRoot)
     {
-        bool isDeviceAccessDenied = IsDenied(Registry.LocalMachine, ConsentStoreKeyPath);
-        bool isUserAccessDenied = IsDenied(Registry.CurrentUser, ConsentStoreKeyPath);
-        bool isDesktopAppAccessDenied = IsDenied(Registry.CurrentUser, ConsentStoreKeyPath + @"\NonPackaged");
+        bool isDeviceAccessDenied = IsDenied(localMachineRoot, ConsentStoreKeyPath);
+        bool isUserAccessDenied = IsDenied(currentUserRoot, ConsentStoreKeyPath);
+        bool isDesktopAppAccessDenied = IsDenied(currentUserRoot, ConsentStoreKeyPath + @"\NonPackaged");
 
         return isDeviceAccessDenied || isUserAccessDenied || isDesktopAppAccessDenied
             ? "Windows is blocking Clicky from the microphone. " + FixInstructions

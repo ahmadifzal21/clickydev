@@ -26,31 +26,33 @@ internal static class WhisperModelFile
     public static bool IsValidModelName(string whisperModelName) =>
         Regex.IsMatch(whisperModelName, @"^[A-Za-z0-9][A-Za-z0-9._-]*$") && !whisperModelName.Contains("..");
 
-    public static string GetModelFilePath(string whisperModelName) =>
-        Path.Combine(ModelsFolderPath, $"ggml-{whisperModelName}.bin");
-
     /// <summary>Returns the cached model path, downloading it first if needed. Reports 0..100.</summary>
-    public static async Task<string> EnsureDownloadedAsync(string whisperModelName, Action<int> reportDownloadPercent,
-        CancellationToken cancellationToken)
+    public static Task<string> EnsureDownloadedAsync(string whisperModelName, Action<int> reportDownloadPercent,
+        CancellationToken cancellationToken) =>
+        EnsureDownloadedAsync(whisperModelName, reportDownloadPercent, sharedModelDownloadHttpClient, ModelsFolderPath, cancellationToken);
+
+    /// <summary>Same, with the HTTP client and folder passed in so tests can serve a model without the network.</summary>
+    internal static async Task<string> EnsureDownloadedAsync(string whisperModelName, Action<int> reportDownloadPercent,
+        HttpClient modelDownloadHttpClient, string modelsFolderPath, CancellationToken cancellationToken)
     {
         if (!IsValidModelName(whisperModelName))
         {
             throw new ArgumentException($"\"{whisperModelName}\" isn't a Whisper model name (try \"base.en\" or \"small.en\").");
         }
 
-        string modelFilePath = GetModelFilePath(whisperModelName);
+        string modelFilePath = Path.Combine(modelsFolderPath, $"ggml-{whisperModelName}.bin");
         if (File.Exists(modelFilePath))
         {
             return modelFilePath;
         }
 
-        Directory.CreateDirectory(ModelsFolderPath);
+        Directory.CreateDirectory(modelsFolderPath);
         // Written to a .part file and renamed at the end, so a cancelled or failed download never
         // leaves a truncated model that would be loaded on the next start.
         string partialModelFilePath = modelFilePath + ".part";
         string modelDownloadUrl = ModelDownloadBaseUrl + $"ggml-{whisperModelName}.bin";
 
-        using HttpResponseMessage downloadResponse = await sharedModelDownloadHttpClient.GetAsync(modelDownloadUrl,
+        using HttpResponseMessage downloadResponse = await modelDownloadHttpClient.GetAsync(modelDownloadUrl,
             HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!downloadResponse.IsSuccessStatusCode)
         {

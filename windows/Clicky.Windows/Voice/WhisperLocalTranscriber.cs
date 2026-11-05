@@ -35,7 +35,7 @@ internal static class SpeechToTextTranscriberFactory
 }
 
 /// <summary>
-/// In-process Whisper.net (whisper.cpp, CPU runtime). The model is loaded once and kept; a changed
+/// In-process Whisper.net (whisper.cpp; Vulkan GPU runtime, CPU fallback). The model is loaded once and kept; a changed
 /// <c>voice.whisperModel</c> loads the new one in the background and swaps it in when ready.
 /// </summary>
 internal sealed class WhisperLocalTranscriber : ISpeechToTextTranscriber
@@ -46,6 +46,17 @@ internal sealed class WhisperLocalTranscriber : ISpeechToTextTranscriber
     private WhisperFactory? loadedWhisperFactory;
     private string? requestedModelName;
     private string currentStatus = "Speech model not loaded yet.";
+    private readonly Func<string, Action<int>, CancellationToken, Task<string>> ensureModelDownloadedAsync;
+
+    public WhisperLocalTranscriber() : this(WhisperModelFile.EnsureDownloadedAsync)
+    {
+    }
+
+    /// <summary>Takes the model download step so tests can serve a model file without the network.</summary>
+    internal WhisperLocalTranscriber(Func<string, Action<int>, CancellationToken, Task<string>> ensureModelDownloadedAsync)
+    {
+        this.ensureModelDownloadedAsync = ensureModelDownloadedAsync;
+    }
 
     public event Action<string>? StatusChanged;
 
@@ -63,6 +74,7 @@ internal sealed class WhisperLocalTranscriber : ISpeechToTextTranscriber
 
     public async Task<string> TranscribeAsync(float[] samples, CancellationToken cancellationToken)
     {
+        List<string> segmentTexts = [];
         await whisperFactoryLock.WaitAsync(cancellationToken);
         try
         {
@@ -72,25 +84,24 @@ internal sealed class WhisperLocalTranscriber : ISpeechToTextTranscriber
             }
 
             await using WhisperProcessor whisperProcessor = loadedWhisperFactory.CreateBuilder().WithLanguage("en").Build();
-            List<string> segmentTexts = [];
             await foreach (SegmentData segmentData in whisperProcessor.ProcessAsync(SpeechClip.PadWithSilenceForWhisper(samples), cancellationToken))
             {
                 segmentTexts.Add(segmentData.Text);
             }
-
-            return SpeechClip.CleanTranscript(segmentTexts);
         }
         finally
         {
             whisperFactoryLock.Release();
         }
+
+        return SpeechClip.CleanTranscript(segmentTexts);
     }
 
     private async Task LoadModelAsync(string whisperModelName, CancellationToken cancellationToken)
     {
         try
         {
-            string modelFilePath = await WhisperModelFile.EnsureDownloadedAsync(whisperModelName,
+            string modelFilePath = await ensureModelDownloadedAsync(whisperModelName,
                 downloadPercent => ReportStatus($"Downloading speech model {whisperModelName}: {downloadPercent}%"),
                 cancellationToken);
             if (whisperModelName != requestedModelName)
@@ -126,6 +137,7 @@ internal sealed class WhisperLocalTranscriber : ISpeechToTextTranscriber
         catch (Exception exception)
         {
             requestedModelName = null; // Lets the next Prepare (or config save) retry.
+            Console.WriteLine($"Whisper {whisperModelName} failed to load: {exception}");
             ReportStatus($"Speech model {whisperModelName} failed to load: {exception.Message}");
         }
     }

@@ -53,6 +53,8 @@ public class SpeechClipTests
         Assert.Equal(0.01 * 10.2, SpeechClip.GetSmoothedAudioPowerLevel(Enumerable.Repeat(0.01f, 800).ToArray(), 0), 5);
         // Silence after a loud buffer falls back to 72% instead of dropping to zero.
         Assert.Equal(0.72, SpeechClip.GetSmoothedAudioPowerLevel(new float[800], 1), 5);
+        // An empty buffer carries no information: keep the previous level.
+        Assert.Equal(0.4, SpeechClip.GetSmoothedAudioPowerLevel([], 0.4));
     }
 
     [Theory]
