@@ -107,4 +107,4 @@ T2.6 Response bubble, waveform and spinner states — not started. Port from Mac
 
 ## Tracker sync pending
 
-- (none)
+- E2 T2.5 -> testing (commit 4540b4b)
