@@ -34,4 +34,23 @@ public sealed class CompanionPanelTextTests
     {
         Assert.Equal(expectedDisplayText, CompanionPanelText.FormatShortcutForDisplay(configuredShortcut));
     }
+
+    [Theory]
+    [InlineData("ctrl+shift+space", "Ctrl + Shift + Space")]
+    [InlineData("ctrl+hyper", "Ctrl + Alt")]
+    [InlineData("", "Ctrl + Alt")]
+    public void EffectiveShortcut_FallsBackToCtrlAltWhenInvalid(string configuredShortcut, string expectedDisplayText)
+    {
+        Assert.Equal(expectedDisplayText, CompanionPanelText.FormatEffectiveShortcutForDisplay(configuredShortcut));
+    }
+
+    [Fact]
+    public void ShortcutNote_ExplainsInvalidShortcutsAndTheAltGrClash()
+    {
+        Assert.Contains("isn't a valid shortcut", CompanionPanelText.GetShortcutNote("ctrl+hyper"));
+        Assert.Contains("AltGr", CompanionPanelText.GetShortcutNote("ctrl+alt"));
+        Assert.Contains("AltGr", CompanionPanelText.GetShortcutNote("ctrl+alt+space"));
+        Assert.Null(CompanionPanelText.GetShortcutNote("ctrl+shift+space"));
+        Assert.Null(CompanionPanelText.GetShortcutNote("alt+f1"));
+    }
 }

@@ -24,7 +24,8 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
     private LowLevelKeyboardProc? keyboardHookCallback; // kept in a field so the GC can't collect it while hooked
     private IntPtr foregroundEventHook;
     private WinEventCallback? foregroundEventCallback; // same GC reason
-    private readonly PushToTalkShortcutStateMachine shortcutStateMachine;
+    private PushToTalkShortcutStateMachine shortcutStateMachine; // only touched on the hook thread once started
+    private volatile PushToTalkShortcut? pendingShortcut;
 
     /// <summary>
     /// Windows (7+) silently unhooks a low-level hook that exceeds LowLevelHooksTimeout, with no
@@ -109,6 +110,12 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
                 continue;
             }
 
+            if (message.Message == WM_APP_CHANGE_SHORTCUT)
+            {
+                ApplyPendingShortcut();
+                continue;
+            }
+
             TranslateMessage(ref message);
             DispatchMessage(ref message);
         }
@@ -123,6 +130,34 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
 
         UnhookWindowsHookEx(keyboardHookHandle);
         keyboardHookHandle = IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Switches to a new shortcut (the config changed). Safe from any thread: the swap is posted to
+    /// the hook thread so the state machine is never touched concurrently. A press in progress is
+    /// released first, so changing the shortcut mid-press can't leave Clicky listening.
+    /// </summary>
+    public void ChangeShortcut(PushToTalkShortcut shortcut)
+    {
+        if (hookThread == null)
+        {
+            shortcutStateMachine = new PushToTalkShortcutStateMachine(shortcut);
+            return;
+        }
+
+        pendingShortcut = shortcut;
+        PostThreadMessage(hookThreadId, WM_APP_CHANGE_SHORTCUT, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    private void ApplyPendingShortcut()
+    {
+        if (pendingShortcut is not { } shortcut || shortcut == shortcutStateMachine.Shortcut)
+        {
+            return;
+        }
+
+        RaiseShortcutTransition(shortcutStateMachine.ResetHeldKeys());
+        shortcutStateMachine = new PushToTalkShortcutStateMachine(shortcut);
     }
 
     /// <summary>
@@ -224,6 +259,7 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
     private const uint WM_QUIT = 0x0012;
     private const uint PM_NOREMOVE = 0x0000;
     private const uint WM_TIMER = 0x0113;
+    private const uint WM_APP_CHANGE_SHORTCUT = 0x8000 + 1; // WM_APP + 1
     private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
 

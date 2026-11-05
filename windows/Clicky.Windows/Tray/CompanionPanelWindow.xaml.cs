@@ -138,7 +138,10 @@ public partial class CompanionPanelWindow : Window
             segmentButton.IsChecked = pickerRow.GetSelectedBackend(clickyConfiguration) == option;
         }
 
-        PushToTalkShortcutRun.Text = CompanionPanelText.FormatShortcutForDisplay(clickyConfiguration.PushToTalkShortcut);
+        PushToTalkShortcutRun.Text = CompanionPanelText.FormatEffectiveShortcutForDisplay(clickyConfiguration.PushToTalkShortcut);
+        string? shortcutNote = CompanionPanelText.GetShortcutNote(clickyConfiguration.PushToTalkShortcut);
+        ShortcutNoteTextBlock.Text = shortcutNote ?? "";
+        ShortcutNoteTextBlock.Visibility = shortcutNote == null ? Visibility.Collapsed : Visibility.Visible;
 
         ShowClickyToggle.IsChecked = clickyConfiguration.IsClickyCursorAlwaysVisible;
         ShowClickyDescriptionTextBlock.Text = clickyConfiguration.IsClickyCursorAlwaysVisible

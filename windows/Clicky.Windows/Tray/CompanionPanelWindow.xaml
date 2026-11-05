@@ -57,11 +57,16 @@
             <!-- Push-to-talk hint. -->
             <Border Margin="16,14,16,0" Padding="12,10" Background="{StaticResource DS.Surface1}"
                     CornerRadius="{StaticResource DS.CornerRadius.Large}">
-                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DS.TextSecondary}">
-                    <Run Text="Hold" />
-                    <Run x:Name="PushToTalkShortcutRun" Text="Ctrl + Alt" FontWeight="SemiBold" Foreground="{StaticResource DS.TextPrimary}" />
-                    <Run Text="to talk to Clicky about your screen." />
-                </TextBlock>
+                <StackPanel>
+                    <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource DS.TextSecondary}">
+                        <Run Text="Hold" />
+                        <Run x:Name="PushToTalkShortcutRun" Text="Ctrl + Alt" FontWeight="SemiBold" Foreground="{StaticResource DS.TextPrimary}" />
+                        <Run Text="to talk to Clicky about your screen." />
+                    </TextBlock>
+                    <!-- Invalid-shortcut / AltGr note (CompanionPanelText.GetShortcutNote). -->
+                    <TextBlock x:Name="ShortcutNoteTextBlock" Margin="0,6,0,0" TextWrapping="Wrap" FontSize="11"
+                               Foreground="{StaticResource DS.TextTertiary}" Visibility="Collapsed" />
+                </StackPanel>
             </Border>
 
             <!-- Show Clicky toggle (CompanionPanelView "Show Clicky Cursor Toggle"). -->

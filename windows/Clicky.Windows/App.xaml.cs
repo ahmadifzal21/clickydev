@@ -2,6 +2,7 @@ using System.Windows;
 using Clicky.Windows.Companion;
 using Clicky.Windows.Configuration;
 using Clicky.Windows.Display;
+using Clicky.Windows.Input;
 using Clicky.Windows.Overlay;
 using Clicky.Windows.Tray;
 
@@ -27,6 +28,7 @@ public partial class App : Application
     private TrayIconManager? trayIconManager;
     private DisplayMonitorCatalog? displayMonitorCatalog;
     private CursorOverlayManager? cursorOverlayManager;
+    private GlobalPushToTalkKeyboardHook? pushToTalkKeyboardHook;
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -50,6 +52,16 @@ public partial class App : Application
         cursorOverlayManager.CompanionStatusChanged += companionPanelWindow.SetCompanionStatus;
         clickyConfigurationStore.ConfigurationChanged += ApplyShowClickySetting;
 
+        // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
+        PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
+        pushToTalkKeyboardHook = new GlobalPushToTalkKeyboardHook(pushToTalkShortcut);
+        if (!pushToTalkKeyboardHook.Start())
+        {
+            Console.WriteLine("Clicky couldn't install its push-to-talk keyboard hook.");
+        }
+
+        clickyConfigurationStore.ConfigurationChanged += ApplyPushToTalkShortcutSetting;
+
         PointingTestTour pointingTestTour = new(cursorOverlayManager, displayMonitorCatalog);
         trayContextMenu = new TrayContextMenu(clickyConfigurationStore, testPointingRequested: pointingTestTour.Run,
             quitRequested: Shutdown);
@@ -62,6 +74,12 @@ public partial class App : Application
         cursorOverlayManager?.SetCursorAlwaysVisible(clickyConfiguration.IsClickyCursorAlwaysVisible);
     }
 
+    private void ApplyPushToTalkShortcutSetting(ClickyConfiguration clickyConfiguration)
+    {
+        PushToTalkShortcut.TryParse(clickyConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
+        pushToTalkKeyboardHook?.ChangeShortcut(pushToTalkShortcut);
+    }
+
     protected override void OnExit(ExitEventArgs exitEventArgs)
     {
         // Tray icon first: Dispose hides it, so no ghost icon is left behind.
@@ -71,7 +89,10 @@ public partial class App : Application
         if (clickyConfigurationStore is not null)
         {
             clickyConfigurationStore.ConfigurationChanged -= ApplyShowClickySetting;
+            clickyConfigurationStore.ConfigurationChanged -= ApplyPushToTalkShortcutSetting;
         }
+
+        pushToTalkKeyboardHook?.Dispose();
 
         companionPanelWindow?.Close();
         cursorOverlayManager?.Dispose();

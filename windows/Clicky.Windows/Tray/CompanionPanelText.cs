@@ -1,4 +1,5 @@
 using Clicky.Windows.Companion;
+using Clicky.Windows.Input;
 
 namespace Clicky.Windows.Tray;
 
@@ -64,6 +65,37 @@ internal static class CompanionPanelText
 
         string formattedShortcut = string.Join(" + ", displayKeyNames);
         return formattedShortcut.Length == 0 ? "(no shortcut set)" : formattedShortcut;
+    }
+
+    /// <summary>The shortcut Clicky actually listens for: the configured one, or Ctrl + Alt if it doesn't parse.</summary>
+    public static string FormatEffectiveShortcutForDisplay(string configuredShortcut)
+    {
+        return FormatShortcutForDisplay(PushToTalkShortcut.TryParse(configuredShortcut, out _)
+            ? configuredShortcut
+            : PushToTalkShortcut.DefaultShortcutText);
+    }
+
+    /// <summary>
+    /// A note under the push-to-talk hint, or null when there's nothing to say: either the configured
+    /// shortcut is invalid, or it is Ctrl + Alt, which is AltGr on many layouts (typing é, @, € ...
+    /// would start Clicky listening).
+    /// </summary>
+    public static string? GetShortcutNote(string configuredShortcut)
+    {
+        if (!PushToTalkShortcut.TryParse(configuredShortcut, out PushToTalkShortcut shortcut))
+        {
+            return $"\"{configuredShortcut}\" isn't a valid shortcut, so Clicky uses Ctrl + Alt. "
+                + "Fix pushToTalkShortcut in clicky.config.json (e.g. \"ctrl+shift+space\") and restart Clicky.";
+        }
+
+        const PushToTalkModifierKeys ControlAndAlt = PushToTalkModifierKeys.Control | PushToTalkModifierKeys.Alt;
+        if ((shortcut.RequiredModifiers & ControlAndAlt) == ControlAndAlt)
+        {
+            return "If your keyboard has AltGr, typing AltGr characters also triggers this. "
+                + "Set pushToTalkShortcut in clicky.config.json (e.g. \"ctrl+shift+space\") and restart Clicky.";
+        }
+
+        return null;
     }
 
     private static string FormatKeyNameForDisplay(string keyName)

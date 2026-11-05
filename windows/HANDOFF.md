@@ -50,7 +50,7 @@ T3.7 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T3.5 — not started (AltGr note, re-parse shortcut on ConfigurationChanged, panel). T3.1-T3.4 committed.
+T3.6 — not started (drive overlay listening state from `ShortcutTransitioned`). T3.1-T3.5 committed.
 
 ## Ticket log (newest last)
 
@@ -138,6 +138,12 @@ T3.5 — not started (AltGr note, re-parse shortcut on ConfigurationChanged, pan
   thread timer (WM_TIMER in the hook's own loop, every 10 s) installs a fresh hook then unhooks the old one; if the old
   unhook fails (already dropped) held keys are reset. Internal ctor takes the interval; test checks reinstalls happen and
   each key is still seen exactly once.
+- T3.5 done: App creates/starts the hook with the parsed config shortcut (invalid -> ctrl+alt) and calls
+  `ChangeShortcut` on ConfigurationChanged (posted to the hook thread as WM_APP+1; releases a press in progress and starts
+  with no held keys). Note: ConfigurationChanged only fires on in-app saves; hand edits to the file need a restart (the
+  panel note says so). Panel shows the effective shortcut plus `CompanionPanelText.GetShortcutNote` (invalid shortcut, or
+  the AltGr = Ctrl+Alt clash). AGENTS.md Windows section documents push-to-talk + AltGr (there's no windows/README).
+  Smoke: app starts with the hook installed. Hook transitions aren't consumed yet (T3.6).
 
 ## Tracker sync pending
 
@@ -145,3 +151,4 @@ T3.5 — not started (AltGr note, re-parse shortcut on ConfigurationChanged, pan
 - E3 T3.2 -> testing
 - E3 T3.3 (and T3.3.1-T3.3.4) -> testing
 - E3 T3.4 -> testing
+- E3 T3.5 -> testing

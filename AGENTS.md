@@ -161,6 +161,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 - **Voice**: Whisper.net (local) for STT and Edge TTS by default; AssemblyAI / ElevenLabs are optional when keys are set in the config
 - **Tray panel**: left-click the tray icon toggles a borderless, non-activating companion panel placed next to the taskbar on whichever edge/monitor it's on; right-click opens a menu with the same backend pickers. Panel UI avoids ComboBox/Popup because popups misbehave in a window that never activates
 - **Multi-agent hand-off**: `windows/HANDOFF.md` records the current ticket and progress for whichever agent picks up the work next; `windows/agent-relay/relay.ps1` alternates Claude Code and Codex CLI headlessly when one hits its usage limit
+- **Push-to-talk**: `GlobalPushToTalkKeyboardHook` installs a listen-only `WH_KEYBOARD_LL` hook on its own message-loop thread (never swallows keys; reinstalled every 10 s because Windows silently drops slow hooks; a foreground change mid-press releases). `pushToTalkShortcut` in the config (default `ctrl+alt`, e.g. `ctrl+shift+space`) is parsed by `PushToTalkShortcut`; invalid values fall back to ctrl+alt. Ctrl+Alt is AltGr on many layouts, so typing AltGr characters also triggers it; the panel says so
 - **Shared with Mac verbatim**: both system prompts and the `[POINT:x,y:label:screenN]` regex. If you change one, change both
 
 ### Windows Key Files
@@ -172,6 +173,8 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/Tray/TrayContextMenu.cs` | ~75 | Right-click menu: Answer / Pointing / Fallback backend submenus (checked from config), Open config file, config error line, Quit |
 | `windows/Clicky.Windows/Tray/CompanionPanelWindow.xaml(.cs)` | ~520 | Floating dark panel. `WS_EX_NOACTIVATE` (never steals focus), so outside clicks are caught with a `WH_MOUSE_LL` hook and Escape with `RegisterHotKey`, both only while visible. Status, push-to-talk hint, Show Clicky switch, backend segmented pickers, config error banner, Quit |
 | `windows/Clicky.Windows/Tray/CompanionPanelPlacement.cs` | ~90 | Pure placement math: detects the taskbar edge from the monitor work area and positions the panel next to the tray click on any edge / monitor (physical pixels) |
+| `windows/Clicky.Windows/Input/GlobalPushToTalkKeyboardHook.cs` | ~330 | Low-level keyboard hook thread (GetMessage loop, foreground WinEvent, periodic reinstall, `ChangeShortcut` posted to the thread); raises `ShortcutTransitioned` on the hook thread |
+| `windows/Clicky.Windows/Input/PushToTalkShortcut.cs` / `PushToTalkShortcutStateMachine.cs` | ~100 / ~120 | Shortcut string parser and the pure press/release state machine (port of Mac `BuddyPushToTalkShortcut.shortcutTransition`) |
 | `windows/Clicky.Windows/Tray/CompanionPanelText.cs` | ~90 | Status text / dot color mapping (port of `statusText` in `CompanionPanelView.swift`) and shortcut display formatting |
 | `windows/Clicky.Windows/Tray/BackendRoutingPickerRows.cs` | ~75 | The Answer / Pointing / Fallback picker definitions shared by the panel and tray menu; opens the config file |
 | `windows/Clicky.Windows/Tray/ClickyDesignSystem.xaml` | ~135 | Colors and corner radii from `DesignSystem.swift`, plus shared button / switch / segment styles (hand cursor + hover) |

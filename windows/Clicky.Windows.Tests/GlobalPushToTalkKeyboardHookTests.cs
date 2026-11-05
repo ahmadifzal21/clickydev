@@ -74,6 +74,43 @@ public sealed class GlobalPushToTalkKeyboardHookTests
         Assert.Equal(2, observedEvents.Count(e => e.VirtualKeyCode == VK_F24)); // each key seen once, not once per hook
     }
 
+    [Fact]
+    public void ChangeShortcut_ReleasesAPressInProgressAndUsesTheNewShortcut()
+    {
+        const ushort VK_LCONTROL = 0xA2, VK_LMENU = 0xA4, VK_LSHIFT = 0xA0;
+        ConcurrentQueue<PushToTalkShortcutTransition> observedTransitions = new();
+        using GlobalPushToTalkKeyboardHook keyboardHook = new(PushToTalkShortcut.Default);
+        keyboardHook.ShortcutTransitioned += observedTransitions.Enqueue;
+        Assert.True(keyboardHook.Start());
+        Assert.True(PushToTalkShortcut.TryParse("ctrl+shift+f24", out PushToTalkShortcut newShortcut));
+        try
+        {
+            SendKey(VK_LCONTROL, isKeyUp: false);
+            SendKey(VK_LMENU, isKeyUp: false);
+            Assert.True(SpinWait.SpinUntil(() => observedTransitions.Count >= 1, TimeSpan.FromSeconds(5)));
+            keyboardHook.ChangeShortcut(newShortcut);
+            Assert.True(SpinWait.SpinUntil(() => observedTransitions.Count >= 2, TimeSpan.FromSeconds(5)));
+            // The new shortcut starts with no held keys, so ctrl is pressed again, as a user would.
+            SendKey(VK_LMENU, isKeyUp: true);
+            SendKey(VK_LCONTROL, isKeyUp: true);
+            SendKey(VK_LCONTROL, isKeyUp: false);
+            SendKey(VK_LSHIFT, isKeyUp: false);
+            SendKey(VK_F24, isKeyUp: false);
+        }
+        finally
+        {
+            SendKey(VK_F24, isKeyUp: true);
+            SendKey(VK_LSHIFT, isKeyUp: true);
+            SendKey(VK_LMENU, isKeyUp: true);
+            SendKey(VK_LCONTROL, isKeyUp: true);
+        }
+
+        Assert.True(SpinWait.SpinUntil(() => observedTransitions.Count >= 4, TimeSpan.FromSeconds(5)));
+        Assert.Equal(
+            new[] { PushToTalkShortcutTransition.Pressed, PushToTalkShortcutTransition.Released, PushToTalkShortcutTransition.Pressed, PushToTalkShortcutTransition.Released },
+            observedTransitions.ToArray());
+    }
+
     private static void SendKey(ushort virtualKey, bool isKeyUp)
     {
         KeyboardInput[] inputs = [new KeyboardInput { Type = 1, VirtualKey = virtualKey, Flags = isKeyUp ? 2u : 0u }];
