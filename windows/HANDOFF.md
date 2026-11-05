@@ -152,9 +152,4 @@ normal typing and AltGr unaffected apart from the documented clash) is the user'
 
 ## Tracker sync pending
 
-- E3 T3.1 -> testing
-- E3 T3.2 -> testing
-- E3 T3.3 (and T3.3.1-T3.3.4) -> testing
-- E3 T3.4 -> testing
-- E3 T3.5 -> testing
-- E3 T3.6 -> testing
+- (none)
