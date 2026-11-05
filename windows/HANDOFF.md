@@ -52,8 +52,8 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T2.2 CursorOverlayWindow — not started. T2.2 must subscribe to `DisplayMonitorCatalog.MonitorsChanged`
-to rebuild its windows and call `RequestRefresh` on WM_DPICHANGED.
+T2.3 Blue triangle cursor — not started. Draw into `CursorOverlayWindow` content (the window is
+`IsHitTestVisible=false`; size content in its DIPs). `CursorOverlayManager` owns the windows.
 
 ## Ticket log (newest last)
 
@@ -84,7 +84,12 @@ to rebuild its windows and call `RequestRefresh` on WM_DPICHANGED.
   per-axis GetDpiForMonitor, primary first; hidden HWND catches WM_DISPLAYCHANGE / WM_SETTINGCHANGE /
   WM_DPICHANGED, coalesced refresh on the dispatcher, `MonitorsChanged` event), `Display/DisplayMonitor.cs`,
   `PixelRect` moved to `Display/`. App owns the catalog. Tests in `DisplayMonitorTests.cs`.
+- T2.2 done: `Overlay/CursorOverlayWindow.cs` (transparent WPF window, WS_EX_TRANSPARENT|LAYERED|TOOLWINDOW|
+  NOACTIVATE, WDA_EXCLUDEFROMCAPTURE before show, HWND_TOPMOST at physical monitor bounds, WM_WINDOWPOSCHANGING
+  pins physical bounds, WM_DPICHANGED -> catalog RequestRefresh), `Overlay/CursorOverlayManager.cs` (one window per
+  monitor, rebuilt on MonitorsChanged, keeps old windows if a rebuild fails, EVENT_SYSTEM_FOREGROUND hook re-raises
+  topmost). App owns the manager. STA native tests in `CursorOverlayWindowTests.cs`.
 
 ## Tracker sync pending
 
-- (none)
+- E2 T2.2 -> testing

@@ -155,6 +155,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 - **Framework**: WPF for all UI. WinForms is referenced only for `NotifyIcon`, since WPF has no tray icon
 - **DPI**: PerMonitorV2 (in `app.manifest`). Win32 coordinates are physical pixels in virtual-screen space, and each overlay window converts to its own DIPs
 - **Monitor discovery**: `DisplayMonitorCatalog` snapshots physical bounds, work areas and per-axis DPI through Win32; a hidden top-level HWND coalesces display/settings notifications on the WPF dispatcher
+- **Cursor overlay**: `CursorOverlayManager` owns one transparent, click-through, non-activating WPF window per monitor and rebuilds them on catalog changes. HWND bounds use physical pixels, capture exclusion uses `WDA_EXCLUDEFROMCAPTURE`, and a shared foreground hook restores topmost ordering for composited fullscreen apps
 - **AI backends**: `claude -p` (Claude Code CLI, using the user's login), `codex exec -i` (Codex CLI, using the user's login), and optionally the existing Cloudflare Worker `/chat` route. No API keys ship in the app
 - **Routing**: `clicky.config.json` maps each job (`answer`, `pointing`) to a backend, plus a `fallback` backend. It's read from next to `Clicky.exe`, else `%APPDATA%\Clicky\`, and is editable from the tray menu
 - **Voice**: Whisper.net (local) for STT and Edge TTS by default; AssemblyAI / ElevenLabs are optional when keys are set in the config
@@ -166,7 +167,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `windows/Clicky.Windows/App.xaml.cs` | ~75 | Tray-only entry point. Single-instance guard, loads config, wires tray icon + context menu + companion panel, disposes the tray icon on exit |
+| `windows/Clicky.Windows/App.xaml.cs` | ~80 | Tray-only entry point. Single-instance guard, loads config, wires tray icon + context menu + companion panel, owns monitor catalog and overlay lifetime, disposes the tray icon first on exit |
 | `windows/Clicky.Windows/Tray/TrayIconManager.cs` | ~115 | `NotifyIcon` with a code-drawn blue cursor icon. Left-click raises `TrayIconLeftClicked(point)`; right-click shows the context menu |
 | `windows/Clicky.Windows/Tray/TrayContextMenu.cs` | ~75 | Right-click menu: Answer / Pointing / Fallback backend submenus (checked from config), Open config file, config error line, Quit |
 | `windows/Clicky.Windows/Tray/CompanionPanelWindow.xaml(.cs)` | ~520 | Floating dark panel. `WS_EX_NOACTIVATE` (never steals focus), so outside clicks are caught with a `WH_MOUSE_LL` hook and Escape with `RegisterHotKey`, both only while visible. Status, push-to-talk hint, Show Clicky switch, backend segmented pickers, config error banner, Quit |
@@ -178,13 +179,16 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/Display/DisplayMonitorCatalog.cs` | ~150 | Win32 monitor enumeration and dispatcher notifications when display geometry or DPI changes |
 | `windows/Clicky.Windows/Display/DisplayMonitor.cs` | ~35 | Immutable monitor identity, physical bounds, work area, DPI scales and half-open containment |
 | `windows/Clicky.Windows/Display/PixelRect.cs` | ~10 | Physical pixel rectangle shared by monitor discovery and tray panel placement |
+| `windows/Clicky.Windows/Overlay/CursorOverlayWindow.cs` | ~160 | Transparent WPF host with native click-through/no-activate styles, capture exclusion, physical monitor bounds and DPI refresh notifications |
+| `windows/Clicky.Windows/Overlay/CursorOverlayManager.cs` | ~115 | Per-monitor overlay creation/rebuild/disposal and shared foreground hook to restore topmost ordering |
 | `windows/Clicky.Windows/Companion/CompanionVoiceState.cs` | ~20 | Idle / Listening / Processing / Responding |
 | `windows/Clicky.Windows/Companion/CompanionSystemPrompts.cs` | ~75 | System prompts copied verbatim from `CompanionManager.swift` |
 | `windows/Clicky.Windows/Companion/PointTagParser.cs` | ~80 | Port of `parsePointingCoordinates`, with the same regex |
 | `windows/Clicky.Windows/Configuration/ClickyConfiguration.cs` | ~170 | `clicky.config.json` model: job routing, backend settings, voice settings, shortcut |
 | `windows/Clicky.Windows/Configuration/ClickyConfigurationStore.cs` | ~130 | Load/create/save config. Atomic writes; never overwrites a file it failed to parse |
 | `windows/Clicky.Windows/AI/ICompanionChatBackend.cs` | ~45 | Backend interface and request records (labeled screenshots, history, prompts) |
-| `windows/Clicky.Windows.Tests/` | — | xUnit tests for parsing, config, panel placement, panel text, picker rows |
+| `windows/Clicky.Windows.Tests/` | — | xUnit tests for parsing, config, panel placement, panel text, picker rows and display geometry |
+| `windows/Clicky.Windows.Tests/CursorOverlayWindowTests.cs` | ~200 | STA native-window tests for physical bounds, input/activation styles, capture affinity and overlay disposal |
 
 ### Windows Build & Run
 

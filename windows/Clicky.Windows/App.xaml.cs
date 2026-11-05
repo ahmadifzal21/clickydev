@@ -2,6 +2,7 @@ using System.Windows;
 using Clicky.Windows.Companion;
 using Clicky.Windows.Configuration;
 using Clicky.Windows.Display;
+using Clicky.Windows.Overlay;
 using Clicky.Windows.Tray;
 
 namespace Clicky.Windows;
@@ -25,6 +26,7 @@ public partial class App : Application
     private TrayContextMenu? trayContextMenu;
     private TrayIconManager? trayIconManager;
     private DisplayMonitorCatalog? displayMonitorCatalog;
+    private CursorOverlayManager? cursorOverlayManager;
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -43,6 +45,7 @@ public partial class App : Application
 
         companionPanelWindow = new CompanionPanelWindow(clickyConfigurationStore);
         companionPanelWindow.QuitRequested += Shutdown;
+        cursorOverlayManager = new CursorOverlayManager(displayMonitorCatalog);
 
         // Until the cursor overlay exists (step 2), "overlay visible" follows the Show Clicky setting.
         clickyConfigurationStore.ConfigurationChanged += UpdatePanelStatusFromConfiguration;
@@ -69,6 +72,7 @@ public partial class App : Application
         }
 
         companionPanelWindow?.Close();
+        cursorOverlayManager?.Dispose();
         displayMonitorCatalog?.Dispose();
         singleInstanceMutex?.Dispose();
         base.OnExit(exitEventArgs);
