@@ -1,4 +1,5 @@
 using System.Windows;
+using Clicky.Windows.Companion;
 using Clicky.Windows.Display;
 using Clicky.Windows.Overlay;
 
@@ -99,5 +100,57 @@ public sealed class BlueCursorFollowTests
     {
         Point landingSpot = PointingFlightArc.LandingSpotBesideTarget(new Point(targetX, targetY), new Size(1920, 1080));
         Assert.Equal(new Point(expectedX, expectedY), landingSpot);
+    }
+
+    [Theory]
+    // 4K primary at 150%, 1280x720 screenshot: model pixels scale by 3 to physical, then / 1.5 to DIPs.
+    [InlineData(0, 0, 3840, 2160, 144u, 144u, 640, 360, 1920, 1080, 1280, 720)]
+    // Negative-origin 1080p monitor left of the primary at 100%, 1280x720 screenshot.
+    [InlineData(-1920, -300, 1920, 1080, 96u, 96u, 100, 50, -1770, -225, 150, 75)]
+    // Mixed per-axis DPI above the primary.
+    [InlineData(0, -1440, 2560, 1440, 120u, 144u, 640, 360, 1280, -720, 1024, 480)]
+    public void ScreenshotPixels_MapToGlobalPhysicalPixelsAndThenOverlayDips(
+        int monitorLeft, int monitorTop, int monitorWidth, int monitorHeight, uint dpiX, uint dpiY,
+        double screenshotX, double screenshotY, double expectedPhysicalX, double expectedPhysicalY,
+        double expectedDipX, double expectedDipY)
+    {
+        PixelRect bounds = new(monitorLeft, monitorTop, monitorLeft + monitorWidth, monitorTop + monitorHeight);
+        DisplayMonitor displayMonitor = new("TESTDISPLAY", bounds, bounds, dpiX, dpiY, false);
+
+        Point physicalPoint = OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels(
+            displayMonitor, new ScreenshotPixelCoordinate(screenshotX, screenshotY), 1280, 720);
+        Point overlayPoint = OverlayCoordinateMapper.PhysicalPixelsToOverlayDips(displayMonitor, physicalPoint.X, physicalPoint.Y);
+
+        Assert.Equal(expectedPhysicalX, physicalPoint.X, 6);
+        Assert.Equal(expectedPhysicalY, physicalPoint.Y, 6);
+        Assert.Equal(expectedDipX, overlayPoint.X, 6);
+        Assert.Equal(expectedDipY, overlayPoint.Y, 6);
+        Assert.True(displayMonitor.Contains(physicalPoint.X, physicalPoint.Y));
+    }
+
+    [Theory]
+    [InlineData(5000, 5000, -1, 1079)]
+    [InlineData(-50, -50, -1920, 0)]
+    [InlineData(1280, 720, -1, 1079)]
+    public void ScreenshotPixels_OutsideTheImageClampOntoTheCapturedMonitor(
+        double screenshotX, double screenshotY, double expectedPhysicalX, double expectedPhysicalY)
+    {
+        PixelRect bounds = new(-1920, 0, 0, 1080);
+        DisplayMonitor displayMonitor = new("TESTDISPLAY", bounds, bounds, 96, 96, false);
+
+        Point physicalPoint = OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels(
+            displayMonitor, new ScreenshotPixelCoordinate(screenshotX, screenshotY), 1280, 720);
+
+        Assert.Equal(new Point(expectedPhysicalX, expectedPhysicalY), physicalPoint);
+        Assert.True(displayMonitor.Contains(physicalPoint.X, physicalPoint.Y));
+    }
+
+    [Fact]
+    public void ScreenshotPixels_RejectAnEmptyScreenshotSize()
+    {
+        PixelRect bounds = new(0, 0, 1920, 1080);
+        DisplayMonitor displayMonitor = new("TESTDISPLAY", bounds, bounds, 96, 96, true);
+        Assert.Throws<ArgumentOutOfRangeException>(() => OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels(
+            displayMonitor, new ScreenshotPixelCoordinate(1, 1), 0, 720));
     }
 }

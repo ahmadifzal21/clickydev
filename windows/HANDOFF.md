@@ -52,9 +52,9 @@ T2.9 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T2.5 Coordinate mapper — not started. Extend `Overlay/OverlayCoordinateMapper.cs` with screenshot px -> global
-physical px (+ clamping), tests for mixed DPI / negative origins / clamping. Pointing entry point already exists:
-`CursorOverlayManager.PointAt(physicalX, physicalY, bubbleText)` (global physical px; no-op + trace if off-screen).
+T2.6 Response bubble, waveform and spinner states — not started. Port from Mac `OverlayWindow.swift`
+(`BlueCursorWaveformView`, `BlueCursorSpinnerView`, triangle visible only in idle/responding) and read
+`CompanionResponseOverlay.swift`. Voice state type: `Companion/CompanionVoiceState.cs`.
 
 ## Ticket log (newest last)
 
@@ -101,7 +101,10 @@ physical px (+ clamping), tests for mixed DPI / negative origins / clamping. Poi
   hold 3 s -> fade 0.5 s -> fly back; return flight yields if the mouse moves >100 DIPs. Only one buddy visible while
   pointing. `CursorOverlayManager.PointAt(physX, physY, text)` picks the monitor's overlay and cancels others.
   `CursorFollowSpring` now takes response/damping + `PlaceAt`. Nothing calls PointAt yet (T2.8 tray item).
+- T2.5 done: `OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels(monitor, ScreenshotPixelCoordinate, w, h)`
+  (scale by monitor px / screenshot px, add monitor origin, clamp onto the monitor's last pixel like the Mac's clamp).
+  Tests: mixed per-axis DPI, negative origins, clamping, zero-size screenshot rejected (`BlueCursorFollowTests.cs`).
 
 ## Tracker sync pending
 
-- E2 T2.4 -> testing (commit 285de51)
+- (none)

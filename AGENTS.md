@@ -184,7 +184,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/Overlay/BlueCursorView.xaml(.cs)` | ~260 | Port of Mac `BlueCursorView`: blue triangle with glow, trails the mouse at +(35, 25) DIPs, drawn only on the mouse's monitor; pointing sequence (fly, streamed bubble, hold, fade, fly back) driven per frame |
 | `windows/Clicky.Windows/Overlay/PointingFlightArc.cs` | ~60 | Mac bezier flight math (duration, arc, tangent rotation, scale pulse) + landing spot beside target |
 | `windows/Clicky.Windows/Overlay/CursorFollowSpring.cs` | ~65 | SwiftUI `.spring(response, dampingFraction)` integrated per frame (cursor follow, bubble pop) |
-| `windows/Clicky.Windows/Overlay/OverlayCoordinateMapper.cs` | ~15 | Physical virtual-screen px → one overlay's DIPs |
+| `windows/Clicky.Windows/Overlay/OverlayCoordinateMapper.cs` | ~35 | Screenshot px → global physical px (clamped onto the captured monitor) → one overlay's DIPs |
 | `windows/Clicky.Windows/Companion/CompanionVoiceState.cs` | ~20 | Idle / Listening / Processing / Responding |
 | `windows/Clicky.Windows/Companion/CompanionSystemPrompts.cs` | ~75 | System prompts copied verbatim from `CompanionManager.swift` |
 | `windows/Clicky.Windows/Companion/PointTagParser.cs` | ~80 | Port of `parsePointingCoordinates`, with the same regex |
