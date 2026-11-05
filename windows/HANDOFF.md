@@ -104,4 +104,4 @@ physical px (+ clamping), tests for mixed DPI / negative origins / clamping. Poi
 
 ## Tracker sync pending
 
-- (none)
+- E2 T2.4 -> testing (commit 285de51)
