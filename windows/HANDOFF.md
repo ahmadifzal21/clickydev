@@ -54,8 +54,8 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-**T5.5 conversation history — not started.** Keep the last 10 exchanges (Mac `CompanionManager.swift`), storing the
-reply with the [POINT] tag stripped (`PointTagParser`); pure, tested holder that T5.6 feeds into `CompanionChatRequest`.
+**T5.6 tray "Ask about my screen (typed)" — not started.** Tray item -> small text box -> capture (ScreenCapture/) ->
+`ChatBackendRouter` (job Answer) with `CompanionConversationHistory` -> reply in the overlay response bubble -> PointAt if tagged.
 
 ## Ticket log (newest last)
 
@@ -184,6 +184,9 @@ reply with the [POINT] tag stripped (`PointTagParser`); pure, tested holder that
   `GetResponseAsync(job, request, ct)` -> `RoutedChatResponse(text, answeringBackendKind)`. Routed backend fails/times out
   -> fallback once (skipped if null, same backend, or caller cancelled); both fail -> one message with both reasons
   (inner AggregateException). Unknown backend kind = error that can fall back. 9 fake-backend tests (T5.4.1).
+- T5.5 done: `Companion/CompanionConversationHistory.cs` — `Record(transcript, fullResponse)` stores the reply with the [POINT]
+  tag stripped (via `PointTagParser`), keeps the last 10; `GetExchanges()` returns a snapshot for `CompanionChatRequest`.
+  UI-thread only. 3 tests.
 
 ## Tracker sync pending
 
@@ -191,3 +194,4 @@ reply with the [POINT] tag stripped (`PointTagParser`); pure, tested holder that
 - E5 T5.2 (T5.2.1-T5.2.4) -> testing
 - E5 T5.3 -> testing
 - E5 T5.4 (T5.4.1) -> testing
+- E5 T5.5 -> testing
