@@ -58,7 +58,7 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 deliberately not built: only if local speech feels slow or flat after E8. T7.6 (verify voices on the user's machine) is the user's:
 tray "Speak test line" plays with `voice.kokoroVoice`; holding the push-to-talk shortcut (or clicking the item again) cuts it off;
 the console log shows "Kokoro first sound after N ms". Try other voices by editing `kokoroVoice` (e.g. `am_michael`, `bf_emma`).
-Note: the user's config still says `"textToSpeech": "edge-tts"`; that's a legacy value that speaks with Kokoro (log line says so).
+The config store migrates the old `"textToSpeech": "edge-tts"` default to `kokoro-local` on load (the user's file is migrated).
 
 ## Ticket log (newest last)
 
@@ -272,6 +272,17 @@ Note: the user's config still says `"textToSpeech": "edge-tts"`; that's a legacy
   sound 1.1-1.3 s vs 0.8-0.9 s. Under `dotnet test` the same code measured RTF 0.8-2.1 and 2.6-8 s first sound (same onnxruntime.dll
   1.22 loaded; cause not found) — the app's own "Kokoro first sound after N ms" log line is the number to trust (T7.6).
   Interrupt: `SpeakAsync` returns 0 ms after `StopSpeaking` (live test), Windows voice stops on cancel.
+
+- E7 hardening (2026-11-06): `KokoroLocalSpeaker` no longer uses KokoroSharp's `KokoroTTS.SpeakFast`. Its source showed
+  `KokoroJob.Progress` calls `model.Infer` on KokoroSharp's own thread with no try/catch (an ONNX error would end Clicky) and
+  speech completion is callback-only (a mid-reply failure left `SpeakAsync` hanging). Now: `KokoroModel.Infer` per chunk in our
+  task (behind `KokoroInference`, one run at a time), segmentation/pauses/post-processing reused from KokoroSharp, playback via NAudio
+  `BufferedWaveProvider` + `WaveOutEvent` with 0.5 s trailing silence so the end isn't clipped. Error before the first sound ->
+  Windows voice says the reply; mid-reply -> stops. Stop returns at once (live: 33 ms, was >2 s waiting for the ONNX run). 7 new
+  tests with a fake model + fake sound output (stable over 8-10 repeats), 289/289 green; live test passes.
+  Config: `TextToSpeechProviderKind.EdgeTts` removed; `ClickyConfigurationStore` migrates `"edge-tts"` -> `"kokoro-local"` on load and
+  saves (an unknown value is still a load error, file untouched). Published exe run: migrated the user's file (routing kept),
+  "Kokoro loaded and warmed up in 6227 ms".
 
 ## Tracker sync pending
 

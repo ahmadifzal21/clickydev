@@ -36,7 +36,7 @@ public sealed class ClickyConfigurationStoreTests : IDisposable
     }
 
     [Fact]
-    public void FileFromBeforeKokoro_WithEdgeTts_StillLoads_KeepingTheUsersOtherSettings()
+    public void FileFromBeforeKokoro_WithEdgeTts_IsMigratedToKokoro_AndSaved_KeepingTheUsersOtherSettings()
     {
         Directory.CreateDirectory(temporaryTestDirectoryPath);
         File.WriteAllText(TemporaryConfigurationFilePath, """
@@ -48,8 +48,25 @@ public sealed class ClickyConfigurationStoreTests : IDisposable
 
         Assert.Null(clickyConfigurationStore.ConfigurationLoadErrorMessage);
         Assert.Equal(ChatBackendKind.CodexCli, clickyConfigurationStore.CurrentConfiguration.JobRouting.Answer);
-        Assert.Equal(TextToSpeechProviderKind.EdgeTts, clickyConfigurationStore.CurrentConfiguration.Voice.TextToSpeech);
+        Assert.Equal(TextToSpeechProviderKind.KokoroLocal, clickyConfigurationStore.CurrentConfiguration.Voice.TextToSpeech);
         Assert.Equal("af_heart", clickyConfigurationStore.CurrentConfiguration.Voice.KokoroVoice);
+        string savedConfigurationJson = File.ReadAllText(TemporaryConfigurationFilePath);
+        Assert.Contains("\"textToSpeech\": \"kokoro-local\"", savedConfigurationJson);
+        Assert.Contains("\"answer\": \"codex-cli\"", savedConfigurationJson);
+        Assert.DoesNotContain("edge", savedConfigurationJson);
+    }
+
+    [Fact]
+    public void UnknownTextToSpeechValue_IsStillAnError_AndTheFileIsLeftAlone()
+    {
+        Directory.CreateDirectory(temporaryTestDirectoryPath);
+        const string unknownEngineJson = "{ \"voice\": { \"textToSpeech\": \"not-an-engine\" } }";
+        File.WriteAllText(TemporaryConfigurationFilePath, unknownEngineJson);
+
+        ClickyConfigurationStore clickyConfigurationStore = ClickyConfigurationStore.LoadOrCreate(TemporaryConfigurationFilePath);
+
+        Assert.NotNull(clickyConfigurationStore.ConfigurationLoadErrorMessage);
+        Assert.Equal(unknownEngineJson, File.ReadAllText(TemporaryConfigurationFilePath));
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using Clicky.Windows.Configuration;
 using Clicky.Windows.Voice;
+using NAudio.Wave;
 
 namespace Clicky.Windows.Tests;
 
@@ -42,7 +43,8 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
         CreateSpeakerWhoseModelDownloadFails()
     {
         RecordingFallbackSpeaker fallbackSpeaker = new();
-        KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) => Task.FromException<string>(new InvalidOperationException("offline")), fallbackSpeaker);
+        KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) => Task.FromException<string>(new InvalidOperationException("offline")), FakeKokoroModel.NeverLoaded,
+            () => new FakeWavePlayer(), fallbackSpeaker);
         List<string> statuses = [];
         TaskCompletionSource loadFailed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         kokoroLocalSpeaker.StatusChanged += status =>
@@ -79,7 +81,7 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
         {
             Interlocked.Increment(ref downloadAttemptCount);
             return Task.FromException<string>(new InvalidOperationException("offline"));
-        }, new RecordingFallbackSpeaker());
+        }, FakeKokoroModel.NeverLoaded, () => new FakeWavePlayer(), new RecordingFallbackSpeaker());
         SemaphoreSlim loadFailures = new(0);
         kokoroLocalSpeaker.StatusChanged += status => { if (status.Contains("failed to load")) loadFailures.Release(); };
 
@@ -101,7 +103,7 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
             Interlocked.Increment(ref downloadAttemptCount);
             reportDownloadPercent(42);
             return neverFinishingDownload.Task;
-        }, new RecordingFallbackSpeaker());
+        }, FakeKokoroModel.NeverLoaded, () => new FakeWavePlayer(), new RecordingFallbackSpeaker());
         List<string> statuses = [];
         kokoroLocalSpeaker.StatusChanged += statuses.Add;
 
@@ -181,10 +183,184 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
         Assert.Equal(100, reportedPercents[^1]);
     }
 
+    /// <summary>Stands in for the ONNX model: a short tone per chunk, optionally slow, optionally failing on chosen calls.</summary>
+    private sealed class FakeKokoroModel
+    {
+        public static readonly Func<string, KokoroInference> NeverLoaded = _ => throw new InvalidOperationException("no model in this test");
+
+        private int synthesizeCallCount;
+        public Func<int, bool> FailsOnCall { get; init; } = _ => false;
+        public TimeSpan TimePerChunk { get; init; } = TimeSpan.Zero;
+        public int SynthesizeCallCount => Volatile.Read(ref synthesizeCallCount);
+        public bool IsReleased { get; private set; }
+
+        public KokoroInference Load(string modelFilePath) => new(Synthesize, () => IsReleased = true);
+
+        private float[] Synthesize(int[] tokens, float[,,] voiceStyle)
+        {
+            int callNumber = Interlocked.Increment(ref synthesizeCallCount); // Call 1 is the warm-up at load.
+            Thread.Sleep(TimePerChunk);
+            if (FailsOnCall(callNumber)) throw new InvalidOperationException($"ONNX run {callNumber} failed");
+            return VoiceTestAudio.Tone(0.05, 0.5f);
+        }
+    }
+
+    /// <summary>Stands in for the sound card: on Play it drains the queued audio as fast as it can until stopped.</summary>
+    private sealed class FakeWavePlayer : IWavePlayer
+    {
+        private IWaveProvider? waveProvider;
+        private volatile bool isStopped;
+        public bool HasPlayed { get; private set; }
+        public PlaybackState PlaybackState { get; private set; }
+        public float Volume { get; set; } = 1;
+        public WaveFormat OutputWaveFormat => waveProvider!.WaveFormat;
+        public event EventHandler<StoppedEventArgs>? PlaybackStopped { add { } remove { } }
+        public void Init(IWaveProvider waveProvider) => this.waveProvider = waveProvider;
+
+        public void Play()
+        {
+            HasPlayed = true;
+            PlaybackState = PlaybackState.Playing;
+            byte[] readBuffer = new byte[4800];
+            Task.Run(() => { while (!isStopped) { waveProvider!.Read(readBuffer, 0, readBuffer.Length); Thread.Sleep(1); } });
+        }
+
+        public void Stop()
+        {
+            isStopped = true;
+            PlaybackState = PlaybackState.Stopped;
+        }
+
+        public void Pause() => PlaybackState = PlaybackState.Paused;
+        public void Dispose() => Stop();
+    }
+
+    private const string ThreeSentenceReply = "That's the Save button. It's in the top left corner. Click it, and your changes are kept.";
+
+    /// <summary>A speaker whose (fake) model has loaded and warmed up; <paramref name="createdPlayers"/> collects its sound outputs.</summary>
+    private static async Task<(KokoroLocalSpeaker Speaker, RecordingFallbackSpeaker Fallback)> CreateReadySpeakerAsync(
+        FakeKokoroModel fakeKokoroModel, List<FakeWavePlayer>? createdPlayers = null)
+    {
+        RecordingFallbackSpeaker fallbackSpeaker = new();
+        KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) => Task.FromResult("fake-model.onnx"), fakeKokoroModel.Load, () =>
+        {
+            FakeWavePlayer fakeWavePlayer = new();
+            lock (createdPlayers ?? []) createdPlayers?.Add(fakeWavePlayer);
+            return fakeWavePlayer;
+        }, fallbackSpeaker);
+        TaskCompletionSource modelReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        kokoroLocalSpeaker.StatusChanged += status => { if (status == "Voice model ready.") modelReady.TrySetResult(); };
+        kokoroLocalSpeaker.Prepare(new VoiceSettings());
+        await modelReady.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        return (kokoroLocalSpeaker, fallbackSpeaker);
+    }
+
+    [Fact]
+    public async Task ReadyModel_SpeaksEveryChunk_AndFinishesWhenTheAudioIsPlayed()
+    {
+        FakeKokoroModel fakeKokoroModel = new();
+        var (kokoroLocalSpeaker, fallbackSpeaker) = await CreateReadySpeakerAsync(fakeKokoroModel);
+
+        Task speech = kokoroLocalSpeaker.SpeakAsync(ThreeSentenceReply, CancellationToken.None);
+        Assert.True(kokoroLocalSpeaker.IsSpeaking);
+        await speech.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(kokoroLocalSpeaker.IsSpeaking);
+        Assert.True(fakeKokoroModel.SynthesizeCallCount >= 3, $"warm-up + at least two chunks, got {fakeKokoroModel.SynthesizeCallCount}");
+        Assert.Empty(fallbackSpeaker.SpokenTexts);
+    }
+
+    [Fact]
+    public async Task ModelErrorBeforeAnySound_DoesNotEscape_AndTheWindowsVoiceSaysTheReply()
+    {
+        FakeKokoroModel fakeKokoroModel = new() { FailsOnCall = callNumber => callNumber > 1 };
+        var (kokoroLocalSpeaker, fallbackSpeaker) = await CreateReadySpeakerAsync(fakeKokoroModel);
+
+        Task speech = kokoroLocalSpeaker.SpeakAsync(ThreeSentenceReply, CancellationToken.None);
+        while (fallbackSpeaker.SpokenTexts.Count == 0 && !speech.IsCompleted) await Task.Delay(10);
+
+        Assert.Equal([ThreeSentenceReply], fallbackSpeaker.SpokenTexts);
+        Assert.True(kokoroLocalSpeaker.IsSpeaking);
+        kokoroLocalSpeaker.StopSpeaking();
+        await speech.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(kokoroLocalSpeaker.IsSpeaking);
+    }
+
+    [Fact]
+    public async Task ModelErrorMidReply_DoesNotEscape_AndTheSpeechFinishes_WithoutRepeatingInAnotherVoice()
+    {
+        FakeKokoroModel fakeKokoroModel = new() { FailsOnCall = callNumber => callNumber == 3 }; // Warm-up, chunk 1, then chunk 2 fails.
+        var (kokoroLocalSpeaker, fallbackSpeaker) = await CreateReadySpeakerAsync(fakeKokoroModel);
+
+        await kokoroLocalSpeaker.SpeakAsync(ThreeSentenceReply, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(kokoroLocalSpeaker.IsSpeaking);
+        Assert.Empty(fallbackSpeaker.SpokenTexts);
+        Assert.Equal(3, fakeKokoroModel.SynthesizeCallCount);
+    }
+
+    [Fact]
+    public async Task StopMidReply_FinishesPromptly_AndSynthesizesNoFurtherChunks()
+    {
+        // Each chunk takes a second, so the stop lands while the second chunk's (uninterruptible) run is in progress.
+        FakeKokoroModel fakeKokoroModel = new() { TimePerChunk = TimeSpan.FromSeconds(1) };
+        List<FakeWavePlayer> createdPlayers = [];
+        var (kokoroLocalSpeaker, _) = await CreateReadySpeakerAsync(fakeKokoroModel, createdPlayers);
+
+        Task speech = kokoroLocalSpeaker.SpeakAsync(ThreeSentenceReply + " " + ThreeSentenceReply, CancellationToken.None);
+        while (!createdPlayers.Any(fakeWavePlayer => fakeWavePlayer.HasPlayed)) await Task.Delay(5);
+        kokoroLocalSpeaker.StopSpeaking();
+        await speech.WaitAsync(TimeSpan.FromMilliseconds(300));
+        await Task.Delay(1500); // Let the run that was in progress finish in the background.
+        int synthesizeCallsAtStop = fakeKokoroModel.SynthesizeCallCount;
+        await Task.Delay(1500);
+
+        Assert.False(kokoroLocalSpeaker.IsSpeaking);
+        Assert.Equal(synthesizeCallsAtStop, fakeKokoroModel.SynthesizeCallCount);
+        Assert.Equal(PlaybackState.Stopped, Assert.Single(createdPlayers).PlaybackState);
+    }
+
+    [Fact]
+    public async Task NewReply_StopsTheOneStillSpeaking()
+    {
+        FakeKokoroModel fakeKokoroModel = new() { TimePerChunk = TimeSpan.FromMilliseconds(200) };
+        var (kokoroLocalSpeaker, _) = await CreateReadySpeakerAsync(fakeKokoroModel);
+
+        Task firstSpeech = kokoroLocalSpeaker.SpeakAsync(ThreeSentenceReply + " " + ThreeSentenceReply, CancellationToken.None);
+        Task secondSpeech = kokoroLocalSpeaker.SpeakAsync("Never mind.", CancellationToken.None);
+
+        await firstSpeech.WaitAsync(TimeSpan.FromSeconds(2));
+        await secondSpeech.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(kokoroLocalSpeaker.IsSpeaking);
+    }
+
+    [Fact]
+    public async Task ModelFileThatFailsToOpen_IsReported_NotThrown()
+    {
+        KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) => Task.FromResult("corrupt.onnx"), FakeKokoroModel.NeverLoaded,
+            () => new FakeWavePlayer(), new RecordingFallbackSpeaker());
+        TaskCompletionSource loadFailed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        kokoroLocalSpeaker.StatusChanged += status => { if (status.StartsWith("Voice model failed to load")) loadFailed.TrySetResult(); };
+
+        kokoroLocalSpeaker.Prepare(new VoiceSettings());
+
+        await loadFailed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task Dispose_ReleasesTheLoadedModel()
+    {
+        FakeKokoroModel fakeKokoroModel = new();
+        var (kokoroLocalSpeaker, _) = await CreateReadySpeakerAsync(fakeKokoroModel);
+
+        kokoroLocalSpeaker.Dispose();
+
+        Assert.True(fakeKokoroModel.IsReleased);
+    }
+
     [Theory]
     [InlineData(TextToSpeechProviderKind.KokoroLocal)]
     [InlineData(TextToSpeechProviderKind.ElevenLabs)]
-    [InlineData(TextToSpeechProviderKind.EdgeTts)]
     public void EveryProvider_SpeaksWithKokoroForNow(TextToSpeechProviderKind textToSpeechProviderKind)
     {
         using ITextToSpeechSpeaker textToSpeechSpeaker = TextToSpeechSpeakerFactory.Create(new VoiceSettings { TextToSpeech = textToSpeechProviderKind });

@@ -71,7 +71,8 @@ public sealed class LiveTextToSpeechTests(ITestOutputHelper output)
         }
 
         // Through the app's speaker: speaks, reports IsSpeaking, and stops promptly when interrupted.
-        using KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) => Task.FromResult(modelFilePath), new WindowsBuiltInSpeaker());
+        using KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) => Task.FromResult(modelFilePath), KokoroInference.Load,
+            () => new NAudio.Wave.WaveOutEvent(), new WindowsBuiltInSpeaker());
         TaskCompletionSource modelReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
         kokoroLocalSpeaker.StatusChanged += status => { if (status == "Voice model ready.") modelReady.TrySetResult(); };
         kokoroLocalSpeaker.Prepare(new VoiceSettings());

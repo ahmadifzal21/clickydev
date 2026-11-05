@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Windows.Threading;
 
@@ -74,7 +75,12 @@ public sealed class ClickyConfigurationStore : IDisposable
         try
         {
             configurationJson = File.ReadAllText(configurationFilePath);
-            ClickyConfiguration loadedConfiguration = ParseConfigurationJson(configurationJson);
+            ClickyConfiguration loadedConfiguration = ParseConfigurationJson(configurationJson, out bool migratedLegacyValues);
+            if (migratedLegacyValues)
+            {
+                configurationJson = SaveMigratedConfiguration(configurationFilePath, loadedConfiguration, configurationJson);
+            }
+
             return new ClickyConfigurationStore(configurationFilePath, loadedConfiguration, configurationLoadErrorMessage: null, configurationJson);
         }
         catch (Exception configurationLoadException) when (configurationLoadException is JsonException or IOException)
@@ -167,11 +173,53 @@ public sealed class ClickyConfigurationStore : IDisposable
         configurationFileWatcher?.Dispose();
     }
 
-    internal static ClickyConfiguration ParseConfigurationJson(string configurationJson)
+    internal static ClickyConfiguration ParseConfigurationJson(string configurationJson) => ParseConfigurationJson(configurationJson, out _);
+
+    /// <param name="migratedLegacyValues">True when values written by older builds were replaced (see <see cref="MigrateLegacyValues"/>).</param>
+    internal static ClickyConfiguration ParseConfigurationJson(string configurationJson, out bool migratedLegacyValues)
     {
-        // An empty file or a literal "null" falls back to defaults rather than failing.
-        return JsonSerializer.Deserialize<ClickyConfiguration>(configurationJson, ConfigurationJsonSerializerOptions)
-            ?? new ClickyConfiguration();
+        JsonNode? configurationNode = JsonNode.Parse(configurationJson,
+            new JsonNodeOptions { PropertyNameCaseInsensitive = true },
+            new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        migratedLegacyValues = MigrateLegacyValues(configurationNode);
+        // A literal "null" falls back to defaults rather than failing (an empty file is a parse error, as before).
+        return configurationNode?.Deserialize<ClickyConfiguration>(ConfigurationJsonSerializerOptions) ?? new ClickyConfiguration();
+    }
+
+    /// <summary>
+    /// Builds before E7 wrote <c>"textToSpeech": "edge-tts"</c> as the default, an engine that was never built; Kokoro replaced
+    /// it. Rewritten here rather than kept as an enum value, because an unknown value would reject the whole file.
+    /// </summary>
+    private static bool MigrateLegacyValues(JsonNode? configurationNode)
+    {
+        if (configurationNode is JsonObject { } configurationObject
+            && configurationObject["voice"] is JsonObject voiceObject
+            && voiceObject["textToSpeech"] is JsonValue textToSpeechValue
+            && textToSpeechValue.TryGetValue(out string? textToSpeechText)
+            && string.Equals(textToSpeechText, "edge-tts", StringComparison.OrdinalIgnoreCase))
+        {
+            voiceObject["textToSpeech"] = "kokoro-local";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <returns>The JSON now on disk, or the original text if the file couldn't be written (the migration still applies in memory).</returns>
+    private static string SaveMigratedConfiguration(string configurationFilePath, ClickyConfiguration migratedConfiguration,
+        string originalConfigurationJson)
+    {
+        try
+        {
+            string migratedConfigurationJson = WriteConfigurationFile(configurationFilePath, migratedConfiguration);
+            Console.WriteLine("Clicky config: replaced the old \"edge-tts\" text-to-speech setting with \"kokoro-local\".");
+            return migratedConfigurationJson;
+        }
+        catch (Exception saveException) when (saveException is IOException or UnauthorizedAccessException)
+        {
+            Console.WriteLine($"Clicky config: couldn't save the \"kokoro-local\" update ({saveException.Message}); using it for this run.");
+            return originalConfigurationJson;
+        }
     }
 
     internal static string SerializeConfigurationJson(ClickyConfiguration clickyConfiguration)

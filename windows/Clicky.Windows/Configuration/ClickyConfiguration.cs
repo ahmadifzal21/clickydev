@@ -41,11 +41,7 @@ public enum TextToSpeechProviderKind
     /// Kokoro-82M in-process (KokoroSharp, ONNX on the CPU).
     KokoroLocal,
 
-    ElevenLabs,
-
-    /// Legacy: early config files were written with "edge-tts", which was never built. Kept so those
-    /// files still load (an unknown value would reject the whole file); it speaks with Kokoro.
-    EdgeTts
+    ElevenLabs
 }
 
 /// <summary>
