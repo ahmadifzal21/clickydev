@@ -98,6 +98,10 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
     private KokoroInference? loadedKokoroInference;
     private KokoroVoice? selectedKokoroVoice;
     private bool isModelLoadStarted;
+
+    /// <summary>Completed by <see cref="Prepare"/> (a config save) to cut short the wait before the next load attempt.</summary>
+    private TaskCompletionSource retryLoadNowSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Func<int, TimeSpan> getRetryDelayAfterFailedAttempts;
     private string currentStatus = "Voice model not loaded yet.";
     private CancellationTokenSource? currentSpeechCancellation;
     private Task currentKokoroSpeech = Task.CompletedTask;
@@ -106,15 +110,31 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
     {
     }
 
-    /// <summary>Takes the download, model, sound output and fallback voice so tests run without the network, the model or speakers.</summary>
+    /// <summary>
+    /// Takes the download, model, sound output and fallback voice so tests run without the network, the model or speakers,
+    /// and the wait between load attempts so they needn't wait 30 s.
+    /// </summary>
     internal KokoroLocalSpeaker(Func<Action<int>, CancellationToken, Task<string>> ensureModelDownloadedAsync,
-        Func<string, KokoroInference> loadKokoroInference, Func<IWavePlayer> createWavePlayer, ITextToSpeechSpeaker fallbackSpeaker)
+        Func<string, KokoroInference> loadKokoroInference, Func<IWavePlayer> createWavePlayer, ITextToSpeechSpeaker fallbackSpeaker,
+        Func<int, TimeSpan>? getRetryDelayAfterFailedAttempts = null)
     {
         this.ensureModelDownloadedAsync = ensureModelDownloadedAsync;
         this.loadKokoroInference = loadKokoroInference;
         this.createWavePlayer = createWavePlayer;
         this.fallbackSpeaker = fallbackSpeaker;
+        this.getRetryDelayAfterFailedAttempts = getRetryDelayAfterFailedAttempts ?? GetDefaultRetryDelay;
     }
+
+    /// <summary>
+    /// Load failures are mostly a first-run download with no network, so retry soon, then back off: 30 s, 2 min, then every
+    /// 10 min. Until it loads, replies use the Windows voice.
+    /// </summary>
+    internal static TimeSpan GetDefaultRetryDelay(int failedAttemptCount) => failedAttemptCount switch
+    {
+        1 => TimeSpan.FromSeconds(30),
+        2 => TimeSpan.FromMinutes(2),
+        _ => TimeSpan.FromMinutes(10)
+    };
 
     public event Action<string>? StatusChanged;
 
@@ -143,7 +163,11 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
         if (!isModelLoadStarted)
         {
             isModelLoadStarted = true;
-            _ = LoadModelAsync(disposalCancellation.Token);
+            _ = LoadModelWithRetriesAsync(disposalCancellation.Token);
+        }
+        else
+        {
+            retryLoadNowSignal.TrySetResult(); // Only matters while waiting to retry: try again now.
         }
     }
 
@@ -282,20 +306,55 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
         }
     }
 
-    private async Task LoadModelAsync(CancellationToken cancellationToken)
+    /// <summary>Keeps trying until the model loads or Clicky exits. Never throws.</summary>
+    private async Task LoadModelWithRetriesAsync(CancellationToken cancellationToken)
     {
+        for (int failedAttemptCount = 1; ; failedAttemptCount++)
+        {
+            retryLoadNowSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Exception? loadException = await TryLoadModelAsync(cancellationToken);
+            if (loadException is null || cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            TimeSpan retryDelay = getRetryDelayAfterFailedAttempts(failedAttemptCount);
+            ReportStatus($"Voice model failed to load: {loadException.Message} Trying again in {FormatRetryDelay(retryDelay)}.");
+            try
+            {
+                await Task.WhenAny(Task.Delay(retryDelay, cancellationToken), retryLoadNowSignal.Task);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+        }
+    }
+
+    private static string FormatRetryDelay(TimeSpan retryDelay) =>
+        retryDelay >= TimeSpan.FromMinutes(1) ? $"{retryDelay.TotalMinutes:0} min" : $"{Math.Max(1, retryDelay.TotalSeconds):0} s";
+
+    /// <returns>Null when the model is loaded (or loading was cancelled), otherwise why it failed.</returns>
+    private async Task<Exception?> TryLoadModelAsync(CancellationToken cancellationToken)
+    {
+        KokoroInference? kokoroInference = null;
         try
         {
             string modelFilePath = await ensureModelDownloadedAsync(
                 downloadPercent => ReportStatus($"Downloading voice model: {downloadPercent}%"), cancellationToken);
             ReportStatus("Loading voice model...");
             Stopwatch loadStopwatch = Stopwatch.StartNew();
-            KokoroInference kokoroInference = await Task.Run(() => loadKokoroInference(modelFilePath), cancellationToken);
+            kokoroInference = await Task.Run(() => loadKokoroInference(modelFilePath), cancellationToken);
+            KokoroInference warmUpInference = kokoroInference;
             // The first synthesis also loads the phonemizer's dictionaries (measured 3.5 s to first sound cold against
             // ~2 s warm), so pay that now rather than on the first reply. Skipped when no voice files were found.
             if (selectedKokoroVoice is { } warmUpVoice)
             {
-                await RunExclusiveInferenceAsync(() => kokoroInference.Synthesize(
+                await RunExclusiveInferenceAsync(() => warmUpInference.Synthesize(
                     Tokenizer.Tokenize("Warming up the voice.", KokoroLangCodeHelper.GetLangCode(warmUpVoice)), warmUpVoice.Features),
                     cancellationToken);
             }
@@ -306,15 +365,23 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
             {
                 ReportStatus("Voice model ready.");
             }
+
+            return null;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            return null;
         }
         catch (Exception exception)
         {
-            isModelLoadStarted = false; // Lets the next Prepare (or config save) retry.
             Console.WriteLine($"Kokoro failed to load: {exception}");
-            ReportStatus($"Voice model failed to load: {exception.Message}");
+            // Loaded but failed to warm up: free it rather than keep a model that may not work (the next attempt reloads).
+            if (kokoroInference is not null && loadedKokoroInference != kokoroInference)
+            {
+                kokoroInference.Release();
+            }
+
+            return exception;
         }
     }
 

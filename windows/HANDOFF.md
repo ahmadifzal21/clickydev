@@ -284,6 +284,11 @@ The config store migrates the old `"textToSpeech": "edge-tts"` default to `kokor
   saves (an unknown value is still a load error, file untouched). Published exe run: migrated the user's file (routing kept),
   "Kokoro loaded and warmed up in 6227 ms".
 
+- Kokoro load retry (2026-11-06): a failed load (download or model file) is retried automatically after 30 s, 2 min, then every
+  10 min (status: "Voice model failed to load: ... Trying again in 30 s."); a config save retries at once. A model that loads but
+  fails its warm-up is released before the retry. Replies use the Windows voice meanwhile. 6 new tests (295/295, stable over 8
+  repeats). Live: model hidden + dead proxy -> "Kokoro failed to load", model restored, loaded by the 30 s retry.
+
 ## Tracker sync pending
 
 (none; E7 T7.1, T7.1.1, T7.1.2, T7.2, T7.3, T7.5 synced to `testing` on 2026-11-05)

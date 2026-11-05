@@ -64,7 +64,7 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
         await loadFailed.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Task speech = kokoroLocalSpeaker.SpeakAsync("Hello there.", CancellationToken.None);
 
-        Assert.Contains("Voice model failed to load: offline", statuses);
+        Assert.Contains("Voice model failed to load: offline Trying again in 30 s.", statuses);
         Assert.Equal(["Hello there."], fallbackSpeaker.SpokenTexts);
         Assert.True(kokoroLocalSpeaker.IsSpeaking);
 
@@ -74,7 +74,60 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
     }
 
     [Fact]
-    public async Task FailedLoad_IsRetriedByTheNextPrepare()
+    public async Task FailedLoad_IsRetriedAutomatically_UntilTheModelLoads()
+    {
+        int downloadAttemptCount = 0;
+        FakeKokoroModel fakeKokoroModel = new();
+        List<int> retryDelayRequests = [];
+        KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) => Interlocked.Increment(ref downloadAttemptCount) < 3
+                ? Task.FromException<string>(new InvalidOperationException("offline"))
+                : Task.FromResult("fake-model.onnx"),
+            fakeKokoroModel.Load, () => new FakeWavePlayer(), new RecordingFallbackSpeaker(),
+            failedAttemptCount => { lock (retryDelayRequests) retryDelayRequests.Add(failedAttemptCount); return TimeSpan.FromMilliseconds(20); });
+        TaskCompletionSource modelReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        kokoroLocalSpeaker.StatusChanged += status => { if (status == "Voice model ready.") modelReady.TrySetResult(); };
+
+        kokoroLocalSpeaker.Prepare(new VoiceSettings());
+        await modelReady.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(3, downloadAttemptCount);
+        Assert.Equal([1, 2], retryDelayRequests);
+        Assert.False(kokoroLocalSpeaker.IsSpeaking);
+    }
+
+    [Fact]
+    public async Task ModelThatLoadsButFailsToWarmUp_IsReleased_AndRetried()
+    {
+        FakeKokoroModel fakeKokoroModel = new() { FailsOnCall = callNumber => callNumber == 1 }; // First warm-up fails.
+        List<string> statuses = [];
+        TaskCompletionSource modelReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) => Task.FromResult("fake-model.onnx"), fakeKokoroModel.Load,
+            () => new FakeWavePlayer(), new RecordingFallbackSpeaker(), _ => TimeSpan.FromMilliseconds(20));
+        kokoroLocalSpeaker.StatusChanged += status =>
+        {
+            lock (statuses) statuses.Add(status);
+            if (status == "Voice model ready.") modelReady.TrySetResult();
+        };
+
+        kokoroLocalSpeaker.Prepare(new VoiceSettings());
+        await modelReady.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(1, fakeKokoroModel.ReleaseCount);
+        lock (statuses) Assert.Contains("Voice model failed to load: ONNX run 1 failed Trying again in 1 s.", statuses);
+    }
+
+    [Theory]
+    [InlineData(1, 30)]
+    [InlineData(2, 120)]
+    [InlineData(3, 600)]
+    [InlineData(50, 600)]
+    public void DefaultRetryDelay_BacksOffToTenMinutes(int failedAttemptCount, int expectedSeconds)
+    {
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), KokoroLocalSpeaker.GetDefaultRetryDelay(failedAttemptCount));
+    }
+
+    [Fact]
+    public async Task FailedLoad_IsRetriedAtOnceByTheNextPrepare()
     {
         int downloadAttemptCount = 0;
         KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) =>
@@ -192,9 +245,11 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
         public Func<int, bool> FailsOnCall { get; init; } = _ => false;
         public TimeSpan TimePerChunk { get; init; } = TimeSpan.Zero;
         public int SynthesizeCallCount => Volatile.Read(ref synthesizeCallCount);
-        public bool IsReleased { get; private set; }
+        private int releaseCount;
+        public int ReleaseCount => Volatile.Read(ref releaseCount);
+        public bool IsReleased => ReleaseCount > 0;
 
-        public KokoroInference Load(string modelFilePath) => new(Synthesize, () => IsReleased = true);
+        public KokoroInference Load(string modelFilePath) => new(Synthesize, () => Interlocked.Increment(ref releaseCount));
 
         private float[] Synthesize(int[] tokens, float[,,] voiceStyle)
         {
