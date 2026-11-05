@@ -27,9 +27,11 @@ internal static class CodexCliProtocol
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
+        // --ignore-user-config skips config.toml (hooks, notify, custom provider, xhigh effort): ~6 s instead of 20-28 s per
+        // answer. Login still comes from CODEX_HOME; codexCli.model in clicky.config.json picks the model.
         string[] arguments =
         [
-            "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never",
+            "exec", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never",
             "--output-last-message", lastMessageFilePath
         ];
         foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);

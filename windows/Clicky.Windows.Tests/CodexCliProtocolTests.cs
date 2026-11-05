@@ -14,7 +14,7 @@ public class CodexCliProtocolTests
 
         Assert.Equal(
             [
-                "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never",
+                "exec", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never",
                 "--output-last-message", @"C:\t\last-message.txt", "--model", "gpt-test",
                 "--image", @"C:\t\screen-1.jpg", "--image", @"C:\t\screen 2.jpg", "--", "-"
             ],

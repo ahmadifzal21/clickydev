@@ -174,6 +174,7 @@ Next epic is not scoped here yet; see `PORTING-PLAN.md`.
   labels folded into the prompt. Codex 0.163.0: real run confirmed the argument shape parses and stdin is read (account
   was at its usage limit, so no answer). Note: the user's Codex hooks (UserPromptSubmit) run on every request;
   `--ignore-user-config` would stop that but also drop their config.toml model/provider, so it's not used. 10 tests.
+  (Reversed 2026-11-05: now used, see the T5.8 entry.)
 
 - T5.3 done: `AI/CloudflareWorkerChatBackend.cs` + pure `AI/CloudflareWorkerProtocol.cs`. POST `{workerBaseUrl}/chat` with the
   Mac's Messages body (model, max_tokens 1024, stream, system, history as text turns, images+labels+question; content blocks
@@ -217,6 +218,11 @@ Next epic is not scoped here yet; see `PORTING-PLAN.md`.
   at it, checks the [POINT] lands on the box (60 px margin) and the overlay starts pointing. Results: Claude Code CLI pass
   (5.0 s, [POINT:640,376] = box centre); Codex CLI pass (25.3 s, same point); Cloudflare Worker not set up (no workerBaseUrl).
   Not automated: watching the flight/bubble on screen (overlay is capture-excluded).
+
+- Codex speed (2026-11-05): benchmarked `codex exec` on one 1280x800 screenshot, 2 runs each: as-is 19.6/27.6 s,
+  `-c model_reasoning_effort="low"` 15.7/16.2 s, `--ignore-user-config` 6.7/6.0 s, same answers. Most of the cost is the user's
+  config.toml (hooks, notify, `caveman` provider, xhigh effort), so `CodexCliProtocol` now passes `--ignore-user-config`
+  (login still from CODEX_HOME; `codexCli.model` picks the model). Live test: Codex 25.3 s -> 7.6 s, still on target.
 
 ## Tracker sync pending
 
