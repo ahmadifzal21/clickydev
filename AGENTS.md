@@ -157,6 +157,7 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 - **Monitor discovery**: `DisplayMonitorCatalog` snapshots physical bounds, work areas and per-axis DPI through Win32; a hidden top-level HWND coalesces display/settings notifications on the WPF dispatcher
 - **Cursor overlay**: `CursorOverlayManager` owns one transparent, click-through, non-activating WPF window per monitor and rebuilds them on catalog changes. HWND bounds use physical pixels, capture exclusion uses `WDA_EXCLUDEFROMCAPTURE`, and a shared foreground hook restores topmost ordering for composited fullscreen apps
 - **AI backends**: `claude -p` (Claude Code CLI, using the user's login), `codex exec -i` (Codex CLI, using the user's login), and optionally the existing Cloudflare Worker `/chat` route. No API keys ship in the app
+- **Claude Code requests**: one ephemeral process per request, UTF-8 stream-JSON with labeled JPEG blocks and prior user/assistant turns (`shouldQuery: false` on historical users). Flags verified against Claude Code 2.1.318: safe mode preserves login while excluding customizations, built-in/MCP tools and slash commands are disabled, and session persistence is off. Timeout/cancellation kills the process tree. Router/UI wiring is still pending in E5.
 - **Routing**: `clicky.config.json` maps each job (`answer`, `pointing`) to a backend, plus a `fallback` backend. It's read from next to `Clicky.exe`, else `%APPDATA%\Clicky\`, and is editable from the tray menu
 - **Voice**: Whisper.net (local) for STT and Edge TTS by default; AssemblyAI / ElevenLabs are optional when keys are set in the config
 - **Tray panel**: left-click the tray icon toggles a borderless, non-activating companion panel placed next to the taskbar on whichever edge/monitor it's on; right-click opens a menu with the same backend pickers. Panel UI avoids ComboBox/Popup because popups misbehave in a window that never activates
@@ -201,7 +202,12 @@ A C# / .NET 8 WPF port of the Mac app, published as a single self-contained `Cli
 | `windows/Clicky.Windows/Configuration/ClickyConfiguration.cs` | ~170 | `clicky.config.json` model: job routing, backend settings, voice settings, shortcut |
 | `windows/Clicky.Windows/Configuration/ClickyConfigurationStore.cs` | ~130 | Load/create/save config. Atomic writes; never overwrites a file it failed to parse |
 | `windows/Clicky.Windows/AI/ICompanionChatBackend.cs` | ~45 | Backend interface and request records (labeled screenshots, history, prompts) |
+| `windows/Clicky.Windows/AI/ClaudeCodeCliChatBackend.cs` | ~35 | Claude Code backend using the configured executable, model and timeout; actionable installation/login errors |
+| `windows/Clicky.Windows/AI/ClaudeCodeCliProtocol.cs` | ~140 | Stream-JSON arguments, prior turns and labeled image serialization, final-result/error parsing; no CLI or network calls |
+| `windows/Clicky.Windows/AI/CliChatProcess.cs` | ~75 | Hidden child-process execution with concurrent pipe draining, timeout/cancellation, and process-tree cleanup |
 | `windows/Clicky.Windows.Tests/` | — | xUnit tests for parsing, config, panel placement, panel text, picker rows and display geometry |
+| `windows/Clicky.Windows.Tests/ClaudeCodeCliProtocolTests.cs` / `ClaudeCodeCliChatBackendTests.cs` | ~145 / ~40 | Claude request/result protocol, tool restrictions, authentication errors, missing executable and invalid timeout tests |
+| `windows/Clicky.Windows.Tests/CliChatProcessTests.cs` | ~125 | Local PowerShell fixtures for UTF-8 pipes, early exit, cancellation and timeout killing parent/child; no AI CLI/network calls |
 | `windows/Clicky.Windows.Tests/CursorOverlayWindowTests.cs` | ~200 | STA native-window tests for physical bounds, input/activation styles, capture affinity and overlay disposal |
 
 ### Windows Build & Run

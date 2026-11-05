@@ -54,7 +54,9 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-E5 not started. Start with T5.1. (E4 is code complete and machine-verified.)
+**T5.2 CodexCliChatBackend — not started.** T5.1 committed (full suite 155/155 on the interactive desktop).
+Reuse `AI/CliChatProcess.cs` for process run/timeout/cancel; mirror the `ClaudeCodeCliProtocol` split (pure, tested
+argument/prompt building + output parsing). Confirm flags with `codex exec --help` first.
 
 ## Ticket log (newest last)
 
@@ -158,6 +160,14 @@ E5 not started. Start with T5.1. (E4 is code complete and machine-verified.)
   panel now also WDA_EXCLUDEFROMCAPTURE, tray "Save debug screenshots" (+ capture-log.txt with method/timing).
   TFM is now net8.0-windows10.0.19041.0. Single 2560x1600 monitor here: WGC ~210 ms; real-capture tests in xUnit.
 
+- T5.1 done: `AI/ClaudeCodeCliChatBackend.cs` + pure `AI/ClaudeCodeCliProtocol.cs` + `AI/CliChatProcess.cs`. `claude -p`
+  stream-json in/out, labeled base64 JPEG blocks, `--system-prompt`, optional `--model`, `--tools ""`, `--safe-mode`
+  (keeps login, unlike `--bare`), `--strict-mcp-config`, `--disable-slash-commands`, `--no-session-persistence`.
+  History = prior user messages with `shouldQuery:false` + synthetic assistant envelopes; `client_composed:true` keeps
+  @paths and /commands literal (checked against claude-agent-sdk 0.3.318, CLI 2.1.318). Final `result` parsed; clear
+  errors for not installed / not logged in / timeout; timeout+cancel kill the process tree. 27 tests, no real CLI calls.
+  Codex's sandbox desktop failed the 7 SendInput/capture tests; on the interactive desktop all 155 pass.
+
 ## Tracker sync pending
 
-- (none)
+- E5 T5.1 (T5.1.1-T5.1.6) -> testing
