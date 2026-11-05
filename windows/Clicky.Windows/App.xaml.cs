@@ -67,7 +67,10 @@ public partial class App : Application
         clickyConfigurationStore.ConfigurationChanged += ApplyPushToTalkShortcutSetting;
 
         PointingTestTour pointingTestTour = new(cursorOverlayManager, displayMonitorCatalog);
-        trayContextMenu = new TrayContextMenu(clickyConfigurationStore, testPointingRequested: pointingTestTour.Run,
+        TypedScreenQuestionRunner typedScreenQuestionRunner = new(cursorOverlayManager, displayMonitorCatalog,
+            TypedScreenQuestionRunner.CreateRouter(clickyConfigurationStore), new CompanionConversationHistory());
+        trayContextMenu = new TrayContextMenu(clickyConfigurationStore, askAboutScreenRequested: typedScreenQuestionRunner.Run,
+            testPointingRequested: pointingTestTour.Run,
             saveDebugScreenshotsRequested: SaveDebugScreenshots, quitRequested: Shutdown);
         trayIconManager = new TrayIconManager(trayContextMenu.ContextMenuStrip);
         trayIconManager.TrayIconLeftClicked += companionPanelWindow.TogglePanel;

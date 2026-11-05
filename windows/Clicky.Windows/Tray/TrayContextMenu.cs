@@ -14,7 +14,7 @@ internal sealed class TrayContextMenu : IDisposable
 
     public System.Windows.Forms.ContextMenuStrip ContextMenuStrip { get; } = new();
 
-    public TrayContextMenu(ClickyConfigurationStore clickyConfigurationStore, Action testPointingRequested,
+    public TrayContextMenu(ClickyConfigurationStore clickyConfigurationStore, Action askAboutScreenRequested, Action testPointingRequested,
         Action saveDebugScreenshotsRequested, Action quitRequested)
     {
         this.clickyConfigurationStore = clickyConfigurationStore;
@@ -43,6 +43,8 @@ internal sealed class TrayContextMenu : IDisposable
 
         ContextMenuStrip.Items.Add("Open config file", image: null,
             onClick: (_, _) => BackendRoutingPickerRows.OpenConfigurationFileInEditor(clickyConfigurationStore.ConfigurationFilePath));
+        // Debug: the whole answer path (capture, routed backend, bubble, pointing) with a typed question instead of voice.
+        ContextMenuStrip.Items.Add("Ask about my screen (typed)", image: null, onClick: (_, _) => askAboutScreenRequested());
         // Debug: flies to known spots on every monitor to check pointing at the user's scaling settings.
         ContextMenuStrip.Items.Add("Test pointing", image: null, onClick: (_, _) => testPointingRequested());
         // Debug: writes the screenshots the model would see, to check capture, ordering and overlay exclusion.

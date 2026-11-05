@@ -54,8 +54,8 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-**T5.6 tray "Ask about my screen (typed)" — not started.** Tray item -> small text box -> capture (ScreenCapture/) ->
-`ChatBackendRouter` (job Answer) with `CompanionConversationHistory` -> reply in the overlay response bubble -> PointAt if tagged.
+**T5.7 latency per backend — not started.** `TypedScreenQuestionRunner` already logs capture + answer ms via Trace; measure
+each backend on this machine (CLIs may be at usage limits — say so), write numbers + warm-process recommendation here.
 
 ## Ticket log (newest last)
 
@@ -187,6 +187,12 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 - T5.5 done: `Companion/CompanionConversationHistory.cs` — `Record(transcript, fullResponse)` stores the reply with the [POINT]
   tag stripped (via `PointTagParser`), keeps the last 10; `GetExchanges()` returns a snapshot for `CompanionChatRequest`.
   UI-thread only. 3 tests.
+- T5.6 done: tray "Ask about my screen (typed)" -> `Companion/TypedScreenQuestionRunner.cs`: VB InputBox (debug-only shortcut),
+  buddy shown transiently + spinner, 150 ms for the box to leave the compositor, capture all screens, route job Answer with
+  history, record exchange, Idle, reply (tag stripped) in the response bubble, PointAt the resolved target with the label.
+  Errors show "Clicky couldn't answer: ..." in the bubble. Pure `Companion/CompanionScreenQuestion.cs`: labels get the Mac's
+  " (image dimensions: WxH pixels)"; `:screenN` picks that capture, else the cursor screen (6 tests). `CreateRouter` shares the
+  live settings objects. Smoke: app starts. Known: in transient mode the hide (+1 s after pointing) can cut the 6 s bubble short.
 
 ## Tracker sync pending
 
@@ -195,3 +201,4 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 - E5 T5.3 -> testing
 - E5 T5.4 (T5.4.1) -> testing
 - E5 T5.5 -> testing
+- E5 T5.6 -> testing
