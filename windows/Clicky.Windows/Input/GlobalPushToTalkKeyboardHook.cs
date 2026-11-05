@@ -26,10 +26,28 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
     private WinEventCallback? foregroundEventCallback; // same GC reason
     private readonly PushToTalkShortcutStateMachine shortcutStateMachine;
 
+    /// <summary>
+    /// Windows (7+) silently unhooks a low-level hook that exceeds LowLevelHooksTimeout, with no
+    /// notification and no reliable way to detect it, so the hook is simply reinstalled this often.
+    /// </summary>
+    private static readonly TimeSpan DefaultKeyboardHookReinstallInterval = TimeSpan.FromSeconds(10);
+
+    private readonly TimeSpan keyboardHookReinstallInterval;
+
     public GlobalPushToTalkKeyboardHook(PushToTalkShortcut shortcut)
+        : this(shortcut, DefaultKeyboardHookReinstallInterval)
+    {
+    }
+
+    /// <summary>Tests pass a short interval to exercise the reinstall without waiting.</summary>
+    internal GlobalPushToTalkKeyboardHook(PushToTalkShortcut shortcut, TimeSpan keyboardHookReinstallInterval)
     {
         shortcutStateMachine = new PushToTalkShortcutStateMachine(shortcut);
+        this.keyboardHookReinstallInterval = keyboardHookReinstallInterval;
     }
+
+    /// <summary>How many times the periodic reinstall has replaced the hook (for tests).</summary>
+    internal int KeyboardHookReinstallCount { get; private set; }
 
     /// <summary>
     /// Raised on the hook thread for every key down/up. Handlers must return quickly and marshal
@@ -79,12 +97,23 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
         foregroundEventHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero,
             foregroundEventCallback, 0, 0, WINEVENT_OUTOFCONTEXT);
 
+        // A thread timer (no window) posts WM_TIMER to this loop.
+        UIntPtr reinstallTimerId = SetTimer(IntPtr.Zero, UIntPtr.Zero, (uint)keyboardHookReinstallInterval.TotalMilliseconds, IntPtr.Zero);
+
         // GetMessage returns 0 on WM_QUIT (posted by Dispose) and -1 on error; stop on either.
         while (GetMessage(out NativeMessage message, IntPtr.Zero, 0, 0) > 0)
         {
+            if (message.Message == WM_TIMER && message.WParam == (IntPtr)(nuint)reinstallTimerId)
+            {
+                ReinstallKeyboardHook();
+                continue;
+            }
+
             TranslateMessage(ref message);
             DispatchMessage(ref message);
         }
+
+        KillTimer(IntPtr.Zero, reinstallTimerId);
 
         if (foregroundEventHook != IntPtr.Zero)
         {
@@ -94,6 +123,28 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
 
         UnhookWindowsHookEx(keyboardHookHandle);
         keyboardHookHandle = IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Installs a fresh hook, then removes the old one. Hook callbacks only arrive while this thread
+    /// pumps, so nothing is delivered twice or missed in between. If the old handle was already gone
+    /// (Windows dropped it), key-ups may have been missed while it was, so held keys are forgotten.
+    /// </summary>
+    private void ReinstallKeyboardHook()
+    {
+        IntPtr replacementHookHandle = SetWindowsHookEx(WH_KEYBOARD_LL, keyboardHookCallback!, GetModuleHandle(null), 0);
+        if (replacementHookHandle == IntPtr.Zero)
+        {
+            return; // keep the old hook; try again next tick
+        }
+
+        bool wasOldHookStillInstalled = UnhookWindowsHookEx(keyboardHookHandle);
+        keyboardHookHandle = replacementHookHandle;
+        KeyboardHookReinstallCount++;
+        if (!wasOldHookStillInstalled)
+        {
+            RaiseShortcutTransition(shortcutStateMachine.ResetHeldKeys());
+        }
     }
 
     /// <summary>A focus change mid-press can swallow the key-up (see ResetHeldKeys), so release rather than stick.</summary>
@@ -172,6 +223,7 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
     private const int WM_SYSKEYUP = 0x0105;
     private const uint WM_QUIT = 0x0012;
     private const uint PM_NOREMOVE = 0x0000;
+    private const uint WM_TIMER = 0x0113;
     private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
 
@@ -201,6 +253,13 @@ public sealed class GlobalPushToTalkKeyboardHook : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr CallNextHookEx(IntPtr hookHandle, int hookCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern UIntPtr SetTimer(IntPtr windowHandle, UIntPtr timerId, uint intervalMilliseconds, IntPtr timerProc);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool KillTimer(IntPtr windowHandle, UIntPtr timerId);
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr eventHookModule,

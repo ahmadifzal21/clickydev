@@ -57,6 +57,23 @@ public sealed class GlobalPushToTalkKeyboardHookTests
         Assert.Equal(new[] { PushToTalkShortcutTransition.Pressed, PushToTalkShortcutTransition.Released }, observedTransitions.ToArray());
     }
 
+    [Fact]
+    public void PeriodicReinstall_ReplacesTheHookAndKeysStillArrive()
+    {
+        ConcurrentQueue<LowLevelKeyboardEvent> observedEvents = new();
+        using GlobalPushToTalkKeyboardHook keyboardHook = new(PushToTalkShortcut.Default, TimeSpan.FromMilliseconds(50));
+        keyboardHook.KeyboardEventObserved += observedEvents.Enqueue;
+        Assert.True(keyboardHook.Start());
+        Assert.True(SpinWait.SpinUntil(() => keyboardHook.KeyboardHookReinstallCount >= 3, TimeSpan.FromSeconds(5)));
+        Assert.True(keyboardHook.IsInstalled);
+
+        SendKey(VK_F24, isKeyUp: false);
+        SendKey(VK_F24, isKeyUp: true);
+        Assert.True(SpinWait.SpinUntil(() => observedEvents.Count(e => e.VirtualKeyCode == VK_F24) >= 2, TimeSpan.FromSeconds(5)));
+        Thread.Sleep(100);
+        Assert.Equal(2, observedEvents.Count(e => e.VirtualKeyCode == VK_F24)); // each key seen once, not once per hook
+    }
+
     private static void SendKey(ushort virtualKey, bool isKeyUp)
     {
         KeyboardInput[] inputs = [new KeyboardInput { Type = 1, VirtualKey = virtualKey, Flags = isKeyUp ? 2u : 0u }];

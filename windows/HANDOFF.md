@@ -50,7 +50,7 @@ T3.7 (verify on the user's machine) is the user's job — never mark it.
 
 ## Current ticket
 
-T3.4 — not started (never swallow keys; reinstall hook after LowLevelHooksTimeout removal). T3.1-T3.3 committed.
+T3.5 — not started (AltGr note, re-parse shortcut on ConfigurationChanged, panel). T3.1-T3.4 committed.
 
 ## Ticket log (newest last)
 
@@ -134,9 +134,14 @@ T3.4 — not started (never swallow keys; reinstall hook after LowLevelHooksTime
   `PushToTalkShortcut`, owns the state machine, raises `ShortcutTransitioned` on the hook thread, and installs an
   EVENT_SYSTEM_FOREGROUND WinEvent on the same thread that calls `ResetHeldKeys` (no stuck press). Tests:
   `PushToTalkShortcutStateMachineTests.cs` + native ctrl+alt injection in `GlobalPushToTalkKeyboardHookTests.cs`.
+- T3.4 done: hook always returns CallNextHookEx (handler exceptions caught). Windows drops timed-out LL hooks silently, so a
+  thread timer (WM_TIMER in the hook's own loop, every 10 s) installs a fresh hook then unhooks the old one; if the old
+  unhook fails (already dropped) held keys are reset. Internal ctor takes the interval; test checks reinstalls happen and
+  each key is still seen exactly once.
 
 ## Tracker sync pending
 
 - E3 T3.1 -> testing
 - E3 T3.2 -> testing
 - E3 T3.3 (and T3.3.1-T3.3.4) -> testing
+- E3 T3.4 -> testing
