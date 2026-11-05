@@ -57,8 +57,6 @@ public partial class CompanionPanelWindow : Window
         SetCompanionStatus(clickyConfigurationStore.CurrentConfiguration.IsClickyCursorAlwaysVisible, CompanionVoiceState.Idle);
     }
 
-    public bool IsPanelVisible => IsVisible;
-
     /// <summary>Updates the header status dot and text. Called by the app as companion state changes.</summary>
     public void SetCompanionStatus(bool isCursorOverlayVisible, CompanionVoiceState voiceState)
     {
@@ -175,16 +173,7 @@ public partial class CompanionPanelWindow : Window
             return;
         }
 
-        ShowNearTrayClick(trayClickPhysicalPoint);
-    }
-
-    public void ShowNearTrayClick(System.Drawing.Point trayClickPhysicalPoint)
-    {
-        if (!IsVisible)
-        {
-            Show();
-        }
-
+        Show();
         UpdateLayout();
         PositionNextToTaskbar(trayClickPhysicalPoint);
         StartWatchingForDismissal();
