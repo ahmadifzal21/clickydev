@@ -44,10 +44,22 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- KokoroSharp.CPU brings ONNX Runtime's CPU natives. KokoroSharp is referenced directly only for $(PkgKokoroSharp),
+         the folder its voice files come from; its own copy target is skipped because it copies every language's voices. -->
+    <PackageReference Include="KokoroSharp" Version="0.8.4" GeneratePathProperty="true" ExcludeAssets="build;buildTransitive" />
+    <PackageReference Include="KokoroSharp.CPU" Version="0.8.4" />
     <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.1" />
+  </ItemGroup>
+
+  <!-- Kokoro voices (0.5 MB each) load from voices\ beside the exe (KokoroVoiceManager reads AppContext.BaseDirectory),
+       so they ship as loose files, not inside the single-file bundle. Only the top-level v1.0 voices: voices-zh needs the
+       separate Chinese model. -->
+  <ItemGroup>
+    <None Include="$(PkgKokoroSharp)\content\voices\*.npy" Link="voices\%(Filename)%(Extension)" Visible="false"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <!-- Whisper.net looks for its native DLLs only in runtimes\ next to the exe, not in the folder the single-file
@@ -55,12 +67,10 @@
        ships Clicky.exe plus a runtimes\ folder holding just the win-x64 CPU and Vulkan builds. -->
   <Target Name="KeepWhisperNativeLibrariesBesideExe" AfterTargets="ComputeResolvedFilesToPublishList">
     <ItemGroup>
-      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
-                             Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes'))
-                                        And !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Contains('win-x64'))" />
-      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
-                             Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes'))"
-                             ExcludeFromSingleFile="true" />
+      <!-- ONNX Runtime's import libraries (onnxruntime.lib) are for C++ linking only. -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.lib'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes'))&#xA;                                        And !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Contains('win-x64'))" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes'))" ExcludeFromSingleFile="true" />
     </ItemGroup>
   </Target>
 

@@ -110,7 +110,7 @@ internal static class VoiceTestAudio
     {
         get
         {
-            string modelFilePath = Path.Combine(WhisperModelFile.ModelsFolderPath, "ggml-base.en.bin");
+            string modelFilePath = Path.Combine(ModelFileDownload.ModelsFolderPath, "ggml-base.en.bin");
             Assert.True(File.Exists(modelFilePath),
                 $"{modelFilePath} is missing. Run Clicky once (or the LiveWhisper test) to download it, then rerun.");
             return modelFilePath;

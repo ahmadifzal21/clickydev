@@ -15,7 +15,7 @@ internal sealed class TrayContextMenu : IDisposable
     public System.Windows.Forms.ContextMenuStrip ContextMenuStrip { get; } = new();
 
     public TrayContextMenu(ClickyConfigurationStore clickyConfigurationStore, Action askAboutScreenRequested, Action testPointingRequested,
-        Action saveDebugScreenshotsRequested, Action quitRequested)
+        Action speakTestLineRequested, Action saveDebugScreenshotsRequested, Action quitRequested)
     {
         this.clickyConfigurationStore = clickyConfigurationStore;
 
@@ -47,6 +47,8 @@ internal sealed class TrayContextMenu : IDisposable
         ContextMenuStrip.Items.Add("Ask about my screen (typed)", image: null, onClick: (_, _) => askAboutScreenRequested());
         // Debug: flies to known spots on every monitor to check pointing at the user's scaling settings.
         ContextMenuStrip.Items.Add("Test pointing", image: null, onClick: (_, _) => testPointingRequested());
+        // Debug: speaks a line with the configured voice, to hear the voice and check that push-to-talk interrupts it.
+        ContextMenuStrip.Items.Add("Speak test line", image: null, onClick: (_, _) => speakTestLineRequested());
         // Debug: writes the screenshots the model would see, to check capture, ordering and overlay exclusion.
         ContextMenuStrip.Items.Add("Save debug screenshots", image: null, onClick: (_, _) => saveDebugScreenshotsRequested());
         ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripSeparator());

@@ -103,7 +103,7 @@ public sealed class WhisperModelFileTests : IDisposable
         string cachedBaseEnModelPath = VoiceTestAudio.CachedBaseEnModelPath;
 
         Assert.Equal(cachedBaseEnModelPath, await WhisperModelFile.EnsureDownloadedAsync("base.en", _ => { }, CancellationToken.None));
-        Assert.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), WhisperModelFile.ModelsFolderPath);
+        Assert.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), ModelFileDownload.ModelsFolderPath);
     }
 
     public void Dispose()

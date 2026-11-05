@@ -33,6 +33,7 @@ public partial class App : Application
     private GlobalPushToTalkKeyboardHook? pushToTalkKeyboardHook;
     private ISpeechToTextTranscriber? speechToTextTranscriber;
     private PushToTalkDictation? pushToTalkDictation;
+    private ITextToSpeechSpeaker? textToSpeechSpeaker;
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -59,6 +60,9 @@ public partial class App : Application
         speechToTextTranscriber = SpeechToTextTranscriberFactory.Create(clickyConfigurationStore.CurrentConfiguration.Voice);
         speechToTextTranscriber.StatusChanged += status => Dispatcher.BeginInvoke(() => companionPanelWindow.SetVoiceNote(status));
         speechToTextTranscriber.Prepare(clickyConfigurationStore.CurrentConfiguration.Voice);
+        textToSpeechSpeaker = TextToSpeechSpeakerFactory.Create(clickyConfigurationStore.CurrentConfiguration.Voice);
+        textToSpeechSpeaker.StatusChanged += status => Dispatcher.BeginInvoke(() => companionPanelWindow.SetVoiceNote(status));
+        textToSpeechSpeaker.Prepare(clickyConfigurationStore.CurrentConfiguration.Voice);
         clickyConfigurationStore.ConfigurationChanged += ApplyVoiceSettings;
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
             companionPanelWindow.SetVoiceNote, Dispatcher);
@@ -68,7 +72,12 @@ public partial class App : Application
         pushToTalkKeyboardHook = new GlobalPushToTalkKeyboardHook(pushToTalkShortcut);
         // Raised on the hook thread, which must return fast; the overlay lives on the UI thread.
         pushToTalkKeyboardHook.ShortcutTransitioned += shortcutTransition =>
-            Dispatcher.BeginInvoke(() => pushToTalkDictation.HandleShortcutTransition(shortcutTransition));
+            Dispatcher.BeginInvoke(() =>
+            {
+                // Like the Mac: talking over Clicky cuts its speech off.
+                if (shortcutTransition == PushToTalkShortcutTransition.Pressed) textToSpeechSpeaker.StopSpeaking();
+                pushToTalkDictation.HandleShortcutTransition(shortcutTransition);
+            });
         if (!pushToTalkKeyboardHook.Start())
         {
             Console.WriteLine("Clicky couldn't install its push-to-talk keyboard hook.");
@@ -80,7 +89,7 @@ public partial class App : Application
         TypedScreenQuestionRunner typedScreenQuestionRunner = new(cursorOverlayManager, displayMonitorCatalog,
             TypedScreenQuestionRunner.CreateRouter(clickyConfigurationStore), new CompanionConversationHistory());
         trayContextMenu = new TrayContextMenu(clickyConfigurationStore, askAboutScreenRequested: typedScreenQuestionRunner.Run,
-            testPointingRequested: pointingTestTour.Run,
+            testPointingRequested: pointingTestTour.Run, speakTestLineRequested: SpeakTestLine,
             saveDebugScreenshotsRequested: SaveDebugScreenshots, quitRequested: Shutdown);
         trayIconManager = new TrayIconManager(trayContextMenu.ContextMenuStrip);
         trayIconManager.TrayIconLeftClicked += companionPanelWindow.TogglePanel;
@@ -95,6 +104,17 @@ public partial class App : Application
     private void ApplyVoiceSettings(ClickyConfiguration clickyConfiguration)
     {
         speechToTextTranscriber?.Prepare(clickyConfiguration.Voice);
+        textToSpeechSpeaker?.Prepare(clickyConfiguration.Voice);
+    }
+
+    /// <summary>Tray debug item (E7 checkpoint): speaks a reply-length line; push-to-talk or a second click interrupts it.</summary>
+    private async void SpeakTestLine()
+    {
+        if (textToSpeechSpeaker is null) return;
+        System.Diagnostics.Stopwatch speechStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await textToSpeechSpeaker.SpeakAsync("Hi, I'm Clicky. Hold control and alt, ask me about anything on your screen, " +
+            "and I'll point you right to it.", CancellationToken.None);
+        Console.WriteLine($"Speak test line finished after {speechStopwatch.ElapsedMilliseconds} ms");
     }
 
     private async void SaveDebugScreenshots()
@@ -132,6 +152,7 @@ public partial class App : Application
 
         pushToTalkKeyboardHook?.Dispose();
         speechToTextTranscriber?.Dispose();
+        textToSpeechSpeaker?.Dispose();
 
         companionPanelWindow?.Close();
         cursorOverlayManager?.Dispose();

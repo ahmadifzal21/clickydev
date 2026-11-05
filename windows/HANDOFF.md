@@ -7,7 +7,7 @@ RELAY-STATUS: complete
 
 ## Scope
 
-Epic **E6 — Speech-to-text** (current; see "Current ticket"). Previous: epic **E5 — AI backends + router** (see `PORTING-PLAN.md` step 5 and "Routing"; code goes in `Clicky.Windows/AI/`,
+Epic **E7 — Text-to-speech** (current; see "Current ticket"). Before it: **E6 — Speech-to-text**. Previous: epic **E5 — AI backends + router** (see `PORTING-PLAN.md` step 5 and "Routing"; code goes in `Clicky.Windows/AI/`,
 implementing the existing `ICompanionChatBackend`; settings already exist in `Configuration/ClickyConfiguration.cs`).
 Checkpoint: tray "Ask about my screen (typed)" with a typed question gets an answer from each backend; the cursor points
 when the answer has a [POINT] tag.
@@ -54,10 +54,11 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-**E6 (speech-to-text) agent work committed: T6.1, T6.2 (T6.2.1-T6.2.4), T6.4, T6.5.** T6.3 (AssemblyAI) is deliberately
-not built: only if local STT feels slow after E8. T6.6 (verify on the user's machine) is the user's: hold the shortcut, speak,
-release; the panel shows `Heard: "..."` and the console log shows the transcript with timings.
-Single-file publish: verified. Whisper's natives ship in `runtimes\` beside `Clicky.exe` (see Ticket log, E6 verification).
+**E7 (text-to-speech) agent work committed: T7.1 (T7.1.1, T7.1.2), T7.2, T7.3 (decided: CPU), T7.5.** T7.4 (ElevenLabs) is
+deliberately not built: only if local speech feels slow or flat after E8. T7.6 (verify voices on the user's machine) is the user's:
+tray "Speak test line" plays with `voice.kokoroVoice`; holding the push-to-talk shortcut (or clicking the item again) cuts it off;
+the console log shows "Kokoro first sound after N ms". Try other voices by editing `kokoroVoice` (e.g. `am_michael`, `bf_emma`).
+Note: the user's config still says `"textToSpeech": "edge-tts"`; that's a legacy value that speaks with Kokoro (log line says so).
 
 ## Ticket log (newest last)
 
@@ -253,6 +254,26 @@ Single-file publish: verified. Whisper's natives ship in `runtimes\` beside `Cli
   load + warm-up 1.6 s on Vulkan; with `runtimes\` hidden, push-to-talk reports "Couldn't transcribe: ... failed to load" (no hang).
   Load failures are now also written to the log.
 
+- E7 (2026-11-05): `Voice/KokoroLocalSpeaker.cs` (`ITextToSpeechSpeaker` + factory, Kokoro only), `Voice/WindowsBuiltInSpeaker.cs`
+  (T7.5 fallback: WinRT SpeechSynthesizer -> WAV -> NAudio WaveOutEvent, no new package), `Voice/ModelFileDownload.cs` (download loop
+  moved out of `WhisperModelFile`; KokoroSharp's own downloader writes `kokoro.onnx` to the current directory, so ours puts
+  `kokoro-v1.0.onnx` in %LOCALAPPDATA%\Clicky\models). Config: `textToSpeech` default `kokoro-local`, new `kokoroVoice` (`af_heart`),
+  `edge-tts` kept as a legacy value (the user's file has it; an unknown enum would reject the whole file), `edgeTtsVoice` dropped.
+  Packages: KokoroSharp.CPU 0.8.4 + KokoroSharp 0.8.4 directly (`$(PkgKokoroSharp)` for the voices; its copy target excluded).
+  Voices: top-level v1.0 `.npy` files copied to `voices\` beside the exe (build and publish, not bundled). Tray "Speak test line";
+  push-to-talk press stops speech. Publish: Clicky.exe 78 -> 147 MB (MisakiSharp.dll 66 MB of English G2P dictionaries + ONNX
+  Runtime 12 MB) + voices\ 28 MB; `.lib` files dropped from publish. Published exe: "Kokoro loaded and warmed up in 7746 ms"
+  (alongside Whisper small.en), working set ~1.48 GB with both models loaded.
+- T7.3 decision (2026-11-05, Core Ultra 5 125H / Arc): **CPU**. DirectML (KokoroSharp.DirectML 0.8.4, ORT 1.22) throws in
+  `/N.1/pool/ConvTranspose` ("The parameter is incorrect") on the Arc GPU. CPU, Release scratch benchmark, 5.2 s reply: RTF 0.40-0.48
+  for 4/8/14 intra-op threads (no difference) and default; first sound with `SpeakFast`: cold 3.5-5.6 s (+0.5-1.3 s first tokenize),
+  warm ~2 s at KokoroSharp's default first segment (200 tokens), 1.3-1.6 s at 60, **0.77-0.90 s at 30** (whole reply ~1 s longer).
+  So: first segment capped at 30 tokens, plus one silent warm-up synthesis at load. EcoQoS (power throttling) forced on: first
+  sound 1.1-1.3 s vs 0.8-0.9 s. Under `dotnet test` the same code measured RTF 0.8-2.1 and 2.6-8 s first sound (same onnxruntime.dll
+  1.22 loaded; cause not found) — the app's own "Kokoro first sound after N ms" log line is the number to trust (T7.6).
+  Interrupt: `SpeakAsync` returns 0 ms after `StopSpeaking` (live test), Windows voice stops on cancel.
+
 ## Tracker sync pending
 
 (none; E5 T5.1-T5.7 synced to `testing` on 2026-11-05)
+- E7 T7.1, T7.1.1, T7.1.2, T7.2, T7.3, T7.5 -> testing (T7.4 stays todo: deferred; T7.6 is the user's).

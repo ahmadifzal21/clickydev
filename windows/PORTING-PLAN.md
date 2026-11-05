@@ -105,6 +105,9 @@ Backends: `claude-code-cli`, `codex-cli`, `cloudflare-worker`.
 7. **Text-to-speech**: Kokoro-82M (v1.0, ONNX) in-process via the KokoroSharp NuGet package,
    model loaded once at start-up, CPU package first (DirectML if CPU is too slow). ElevenLabs is
    added only if this feels too slow or flat end to end.
+   Measured (2026-11-05, Core Ultra 5 125H): CPU RTF ~0.45; first sound ~0.8 s with the first chunk capped at 30 tokens
+   (~2 s at the default 200) after a warm-up synthesis. DirectML fails on the Arc GPU (ConvTranspose), so CPU it is.
+   Windows' built-in voice speaks while Kokoro isn't ready or if it fails.
 8. **Full pipeline**: hotkey → record → transcribe → capture → answer → speak → point;
    transient cursor mode; single-file publish.
 9. **Package identity + installer (after step 8, optional)**: only if the capture border bothers

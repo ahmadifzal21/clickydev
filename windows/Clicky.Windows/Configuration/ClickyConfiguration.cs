@@ -35,11 +35,17 @@ public enum SpeechToTextProviderKind
     AssemblyAi
 }
 
-/// <summary>Text-to-speech engines. Serialized as "edge-tts" / "eleven-labs".</summary>
+/// <summary>Text-to-speech engines. Serialized as "kokoro-local" / "eleven-labs".</summary>
 public enum TextToSpeechProviderKind
 {
-    EdgeTts,
-    ElevenLabs
+    /// Kokoro-82M in-process (KokoroSharp, ONNX on the CPU).
+    KokoroLocal,
+
+    ElevenLabs,
+
+    /// Legacy: early config files were written with "edge-tts", which was never built. Kept so those
+    /// files still load (an unknown value would reject the whole file); it speaks with Kokoro.
+    EdgeTts
 }
 
 /// <summary>
@@ -149,10 +155,10 @@ public sealed class VoiceSettings
     /// <summary>Whisper GGML model name, downloaded on first use (for example "base.en", "small.en").</summary>
     public string WhisperModel { get; set; } = "base.en";
 
-    public TextToSpeechProviderKind TextToSpeech { get; set; } = TextToSpeechProviderKind.EdgeTts;
+    public TextToSpeechProviderKind TextToSpeech { get; set; } = TextToSpeechProviderKind.KokoroLocal;
 
-    /// <summary>Edge neural voice short name.</summary>
-    public string EdgeTtsVoice { get; set; } = "en-US-AvaMultilingualNeural";
+    /// <summary>Kokoro voice name, e.g. "af_heart", "am_michael", "bf_emma" (the .npy files in the voices folder).</summary>
+    public string KokoroVoice { get; set; } = "af_heart";
 
     /// <summary>Only needed when SpeechToText is "assembly-ai".</summary>
     public string AssemblyAiApiKey { get; set; } = "";

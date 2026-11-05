@@ -31,6 +31,25 @@ public sealed class ClickyConfigurationStoreTests : IDisposable
         Assert.Contains("\"answer\": \"claude-code-cli\"", writtenConfigurationJson);
         Assert.Contains("\"speechToText\": \"whisper-local\"", writtenConfigurationJson);
         Assert.Contains("\"pushToTalkShortcut\": \"ctrl+alt\"", writtenConfigurationJson);
+        Assert.Contains("\"textToSpeech\": \"kokoro-local\"", writtenConfigurationJson);
+        Assert.Contains("\"kokoroVoice\": \"af_heart\"", writtenConfigurationJson);
+    }
+
+    [Fact]
+    public void FileFromBeforeKokoro_WithEdgeTts_StillLoads_KeepingTheUsersOtherSettings()
+    {
+        Directory.CreateDirectory(temporaryTestDirectoryPath);
+        File.WriteAllText(TemporaryConfigurationFilePath, """
+            { "jobRouting": { "answer": "codex-cli" },
+              "voice": { "textToSpeech": "edge-tts", "edgeTtsVoice": "en-US-AvaMultilingualNeural" } }
+            """);
+
+        ClickyConfigurationStore clickyConfigurationStore = ClickyConfigurationStore.LoadOrCreate(TemporaryConfigurationFilePath);
+
+        Assert.Null(clickyConfigurationStore.ConfigurationLoadErrorMessage);
+        Assert.Equal(ChatBackendKind.CodexCli, clickyConfigurationStore.CurrentConfiguration.JobRouting.Answer);
+        Assert.Equal(TextToSpeechProviderKind.EdgeTts, clickyConfigurationStore.CurrentConfiguration.Voice.TextToSpeech);
+        Assert.Equal("af_heart", clickyConfigurationStore.CurrentConfiguration.Voice.KokoroVoice);
     }
 
     [Fact]
