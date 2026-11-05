@@ -54,8 +54,8 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-**T5.3 CloudflareWorkerChatBackend — not started.** Read `worker/src/index.ts` `/chat` (read only) and the Mac
-`ClaudeAPI.swift` SSE parsing; pure, tested request building + SSE parsing; no network in tests.
+**T5.4 ChatBackendRouter — not started.** Per-job routing (`Routing.Answer` / `Routing.Pointing` / fallback in
+`ClickyConfiguration`) over the three backends + exactly one fallback attempt; unit tests with fake backends (T5.4.1).
 
 ## Ticket log (newest last)
 
@@ -174,7 +174,15 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
   was at its usage limit, so no answer). Note: the user's Codex hooks (UserPromptSubmit) run on every request;
   `--ignore-user-config` would stop that but also drop their config.toml model/provider, so it's not used. 10 tests.
 
+- T5.3 done: `AI/CloudflareWorkerChatBackend.cs` + pure `AI/CloudflareWorkerProtocol.cs`. POST `{workerBaseUrl}/chat` with the
+  Mac's Messages body (model, max_tokens 1024, stream, system, history as text turns, images+labels+question; content blocks
+  shared with Claude Code via `ClaudeCodeCliProtocol.BuildCurrentUserContentBlocks`). SSE: joins `text_delta`s, stops on
+  `message_stop`/`[DONE]`, skips bad lines, in-stream `error` event throws. Empty/non-http base URL = "not set up" error;
+  HTTP errors show status + Anthropic `error.type: message` (+ hints for 401/403/404); unreachable / timeout / caller-cancel
+  distinguished. One shared HttpClient (infinite timeout, our own token) keeps TLS warm. 15 tests via a fake handler, no network.
+
 ## Tracker sync pending
 
 - E5 T5.1 (T5.1.1-T5.1.6) -> testing
 - E5 T5.2 (T5.2.1-T5.2.4) -> testing
+- E5 T5.3 -> testing

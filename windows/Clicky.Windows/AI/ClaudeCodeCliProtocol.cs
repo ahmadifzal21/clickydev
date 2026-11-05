@@ -62,6 +62,16 @@ internal static class ClaudeCodeCliProtocol
             }));
         }
 
+        input.AppendLine(SerializeUserMessage(BuildCurrentUserContentBlocks(companionChatRequest), shouldQuery: true));
+        return input.ToString();
+    }
+
+    /// <summary>
+    /// Anthropic Messages content for the current turn, like the Mac: each image followed by its label, then the question.
+    /// Shared with the Cloudflare Worker backend, which sends the same Messages API shape.
+    /// </summary>
+    public static List<object> BuildCurrentUserContentBlocks(CompanionChatRequest companionChatRequest)
+    {
         var contentBlocks = new List<object>();
         foreach (LabeledScreenshotImage screenshot in companionChatRequest.LabeledScreenshotImages)
         {
@@ -73,8 +83,7 @@ internal static class ClaudeCodeCliProtocol
             contentBlocks.Add(new { type = "text", text = screenshot.ImageLabel });
         }
         contentBlocks.Add(new { type = "text", text = companionChatRequest.UserPrompt });
-        input.AppendLine(SerializeUserMessage(contentBlocks, shouldQuery: true));
-        return input.ToString();
+        return contentBlocks;
     }
 
     private static string SerializeUserMessage(object content, bool shouldQuery) => JsonSerializer.Serialize(new
