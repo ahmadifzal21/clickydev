@@ -51,24 +51,29 @@ set RELAY-STATUS: complete.
 
 function Test-RelayComplete { (Get-Content $handoffPath -Raw) -match '(?m)^RELAY-STATUS:\s*complete' }  # line start: the file's comment also mentions it
 
+# Appends each output line to the run's log as it arrives (tail it with Get-Content -Wait) and passes it on.
+# Not Tee-Object: in PowerShell 5.1 it writes UTF-16. claude -p in text mode prints only at the end.
+function Write-LiveLog([string] $logPath) {
+    process { $line = "$_"; Add-Content -Path $logPath -Value $line -Encoding UTF8; $line }
+}
+
 function Invoke-Agent([string] $agent, [string] $logPath) {
     Push-Location $repoDir
     # Agent stderr is normal output, not a failure; under 'Stop' PowerShell 5.1 also hangs piping into codex.ps1.
     $ErrorActionPreference = 'Continue'
     try {
         if ($agent -eq 'claude') {
-            $output = & claude -p $prompt --permission-mode auto 2>&1
+            $output = & claude -p $prompt --permission-mode auto 2>&1 | Write-LiveLog $logPath
         } else {
             $nugetCacheDir = (Join-Path $env:USERPROFILE '.nuget\packages') -replace '\\', '/'
             # TOML literal string ('...'): Windows PowerShell 5.1 strips embedded double quotes
             # from native-command arguments, which makes Codex reject the config and exit.
             $output = $prompt | & codex exec --sandbox $CodexSandbox -C $repoDir `
                 -c "sandbox_workspace_write.writable_roots=['$nugetCacheDir']" `
-                -c 'sandbox_workspace_write.network_access=true' - 2>&1
+                -c 'sandbox_workspace_write.network_access=true' - 2>&1 | Write-LiveLog $logPath
         }
         $exitCode = $LASTEXITCODE
     } finally { Pop-Location }
-    $output | Out-File -FilePath $logPath -Encoding utf8
     $tail = ($output | Select-Object -Last 40) -join "`n"
     [pscustomobject]@{ ExitCode = $exitCode; HitLimit = ($tail -match $limitPattern) }
 }
