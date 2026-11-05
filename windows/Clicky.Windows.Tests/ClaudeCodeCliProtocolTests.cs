@@ -7,18 +7,18 @@ namespace Clicky.Windows.Tests;
 public class ClaudeCodeCliProtocolTests
 {
     [Fact]
-    public void Arguments_KeepPromptAndModelLiteral_AndDisableActionsAndPersistence()
+    public void Arguments_PassPromptByFileAndModelLiteral_AndDisableActionsAndPersistence()
     {
-        const string systemPrompt = "Explain \"this\".\nDo not run $(commands).";
+        const string systemPromptFilePath = @"C:\Temp Dir\clicky-claude-1.txt";
         var settings = new ClaudeCodeCliBackendSettings { ExecutablePath = @"C:\Claude Code\claude.exe", Model = "opus" };
 
-        var startInfo = ClaudeCodeCliProtocol.BuildStartInfo(settings, systemPrompt);
+        var startInfo = ClaudeCodeCliProtocol.BuildStartInfo(settings, systemPromptFilePath);
 
         Assert.Equal(settings.ExecutablePath, startInfo.FileName);
         Assert.Equal(new[]
         {
             "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--system-prompt", systemPrompt, "--tools", "", "--safe-mode", "--strict-mcp-config",
+            "--system-prompt-file", systemPromptFilePath, "--tools", "", "--safe-mode", "--strict-mcp-config",
             "--disable-slash-commands", "--no-session-persistence", "--model", "opus"
         }, startInfo.ArgumentList);
         Assert.False(startInfo.UseShellExecute);

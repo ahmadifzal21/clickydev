@@ -144,6 +144,30 @@ public class CliChatProcessTests
         }
     }
 
+    [Fact]
+    public async Task NpmCmdShim_ReceivesClaudeArgumentsIntact()
+    {
+        string shimDirectory = Directory.CreateTempSubdirectory("clicky shim ").FullName;
+        try
+        {
+            // Like npm's shim, it forwards %* untouched; echo shows exactly what cmd.exe parsed.
+            string shimPath = Path.Combine(shimDirectory, "claude.cmd");
+            File.WriteAllText(shimPath, "@echo %*\r\n");
+            string promptFilePath = Path.Combine(shimDirectory, "clicky-claude-1.txt");
+            var startInfo = ClaudeCodeCliProtocol.BuildStartInfo(
+                new Clicky.Windows.Configuration.ClaudeCodeCliBackendSettings { ExecutablePath = shimPath }, promptFilePath);
+
+            var result = await CliChatProcess.RunAsync(startInfo, "", TimeSpan.FromSeconds(15), CancellationToken.None);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains($"--system-prompt-file \"{promptFilePath}\" --tools \"\" --safe-mode", result.StandardOutput);
+        }
+        finally
+        {
+            Directory.Delete(shimDirectory, recursive: true);
+        }
+    }
+
     private static Process? FindProcess(int processId)
     {
         try { return Process.GetProcessById(processId); }

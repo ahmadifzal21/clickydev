@@ -50,6 +50,8 @@ internal sealed class CursorOverlayWindow : Window
 
     public bool IsPointing => blueCursorView.IsPointing;
 
+    public bool IsShowingResponse => blueCursorView.IsShowingResponse;
+
     /// <summary>
     /// Moves the blue cursor for this frame; it is drawn while the mouse is on this monitor (unless another overlay
     /// is pointing) or while this overlay is pointing.

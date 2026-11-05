@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using Clicky.Windows.Configuration;
 
 namespace Clicky.Windows.AI;
@@ -12,10 +13,12 @@ internal sealed class ClaudeCodeCliChatBackend(ClaudeCodeCliBackendSettings sett
     public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        string systemPromptFilePath = Path.Combine(Path.GetTempPath(), $"clicky-claude-{Guid.NewGuid():N}.txt");
         try
         {
+            await File.WriteAllTextAsync(systemPromptFilePath, companionChatRequest.SystemPrompt, cancellationToken).ConfigureAwait(false);
             var result = await CliChatProcess.RunAsync(
-                ClaudeCodeCliProtocol.BuildStartInfo(settings, companionChatRequest.SystemPrompt),
+                ClaudeCodeCliProtocol.BuildStartInfo(settings, systemPromptFilePath),
                 ClaudeCodeCliProtocol.SerializeInput(companionChatRequest),
                 TimeSpan.FromSeconds(settings.ResponseTimeoutSeconds), cancellationToken).ConfigureAwait(false);
             return ClaudeCodeCliProtocol.ParseResponse(result.StandardOutput, result.StandardError, result.ExitCode);
@@ -28,6 +31,11 @@ internal sealed class ClaudeCodeCliChatBackend(ClaudeCodeCliBackendSettings sett
         catch (TimeoutException exception)
         {
             throw new TimeoutException($"Claude Code did not respond within {settings.ResponseTimeoutSeconds} seconds.", exception);
+        }
+        finally
+        {
+            try { File.Delete(systemPromptFilePath); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
         }
     }
 }

@@ -8,7 +8,7 @@ namespace Clicky.Windows.AI;
 
 internal static class ClaudeCodeCliProtocol
 {
-    public static ProcessStartInfo BuildStartInfo(ClaudeCodeCliBackendSettings settings, string systemPrompt)
+    public static ProcessStartInfo BuildStartInfo(ClaudeCodeCliBackendSettings settings, string systemPromptFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(settings.ExecutablePath);
         var startInfo = new ProcessStartInfo(settings.ExecutablePath)
@@ -22,11 +22,12 @@ internal static class ClaudeCodeCliProtocol
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
-        // Safe mode preserves the user's login but excludes project/user hooks, plugins and instructions.
+        // The prompt goes by file: an npm "claude.cmd" shim runs through cmd.exe, which can't carry newlines (or a literal %)
+        // in an argument. Safe mode preserves the user's login but excludes project/user hooks, plugins and instructions.
         string[] arguments =
         [
             "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--system-prompt", systemPrompt, "--tools", "", "--safe-mode", "--strict-mcp-config",
+            "--system-prompt-file", systemPromptFilePath, "--tools", "", "--safe-mode", "--strict-mcp-config",
             "--disable-slash-commands", "--no-session-persistence"
         ];
         foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);

@@ -326,6 +326,29 @@ public sealed class CursorOverlayWindowTests
         });
     }
 
+    [Fact]
+    public void Manager_TransientHideWaitsForTheReplyBubbleToFadeOut()
+    {
+        RunOnStaThread(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            DisplayMonitor firstMonitor = displayMonitorCatalog.Monitors[0];
+            double mouseX = firstMonitor.Bounds.Left + 10;
+            double mouseY = firstMonitor.Bounds.Top + 10;
+
+            cursorOverlayManager.ShowTransiently();
+            cursorOverlayManager.ShowResponseText("the reply");
+            cursorOverlayManager.FinishResponse();
+            cursorOverlayManager.ScheduleTransientHide();
+            // Bubble holds 6 s and fades 0.4 s; only then does the 1 s pause and 0.4 s fade-out start.
+            for (int frame = 0; frame < 70; frame++) cursorOverlayManager.AdvanceFrame(mouseX, mouseY, 0.1);
+            Assert.True(cursorOverlayManager.IsOverlayVisible);
+            for (int frame = 0; frame < 20; frame++) cursorOverlayManager.AdvanceFrame(mouseX, mouseY, 0.1);
+            Assert.False(cursorOverlayManager.IsOverlayVisible);
+        });
+    }
+
     private static List<IntPtr> FindOverlayWindowHandles()
     {
         List<IntPtr> overlayWindowHandles = [];

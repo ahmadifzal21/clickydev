@@ -69,8 +69,8 @@ internal static class CliChatProcess
     /// CreateProcess only appends ".exe" to a bare name, but npm installs CLIs as "codex.cmd" / "claude.cmd" shims, so a bare
     /// name is looked up on PATH as .exe, then .cmd, then .bat. Anything with a directory or extension is used as given.
     /// </summary>
-    // shortcut: a .cmd shim runs through cmd.exe, which re-parses arguments; ours are file paths, model names and (Claude) the
-    // system prompt, whose newlines a batch shim can't carry. Switch Claude to a prompt file if npm-installed Claude shows up.
+    // A .cmd shim runs through cmd.exe, which re-parses arguments: keep every CLI argument single-line and free of % and ^
+    // (prompts go by file or stdin).
     internal static string ResolveExecutablePath(string fileName, string? searchPath)
     {
         if (fileName.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) >= 0 || Path.HasExtension(fileName))

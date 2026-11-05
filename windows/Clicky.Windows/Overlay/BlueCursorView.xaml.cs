@@ -92,6 +92,9 @@ public partial class BlueCursorView : UserControl
         ResponseBubble.Visibility = Visibility.Hidden;
     }
 
+    /// <summary>True from the first reply text until the bubble has faded out.</summary>
+    internal bool IsShowingResponse => responseText is not null;
+
     /// <summary>True from take-off until the buddy is back following the mouse.</summary>
     internal bool IsPointing => companionMotion != CompanionMotion.FollowingMouse;
 

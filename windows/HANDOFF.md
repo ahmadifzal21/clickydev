@@ -208,6 +208,10 @@ Next epic is not scoped here yet; see `PORTING-PLAN.md`.
   first, when the voice pipeline lands: stream text (Worker SSE / Claude stream-json partials) so TTS starts on the first
   sentence. Revisit warm processes if end-to-end voice latency is still > ~6 s.
 
+- E5 follow-up: transient hide now also waits for the reply bubble (6 s hold + fade) via `IsShowingResponse`, so the
+  T5.6 "bubble cut short" issue is fixed. Claude's system prompt now goes by `--system-prompt-file` (temp file, deleted after),
+  so an npm `claude.cmd` shim can't mangle it; a test runs the real argument list through a `.cmd` echo shim. Real CLI smoke OK.
+
 ## Tracker sync pending
 
 (none; E5 T5.1-T5.7 synced to `testing` on 2026-11-05)

@@ -162,8 +162,11 @@ internal sealed class CursorOverlayManager : IDisposable
 
         if (transientHideCountdownSeconds is double hideCountdown)
         {
-            // The Mac waits for the flight back to the mouse before starting its one-second pause.
-            hideCountdown = isAnyOverlayPointing ? TransientHideDelaySeconds : hideCountdown - elapsedSeconds;
+            // The Mac waits for the flight back to the mouse before starting its one-second pause; the reply bubble
+            // lives in the overlay too, so it must finish its hold and fade first.
+            bool isAnyOverlayBusy = isAnyOverlayPointing
+                || cursorOverlayWindows.Any(cursorOverlayWindow => cursorOverlayWindow.IsShowingResponse);
+            hideCountdown = isAnyOverlayBusy ? TransientHideDelaySeconds : hideCountdown - elapsedSeconds;
             transientHideCountdownSeconds = hideCountdown > 0 ? hideCountdown : null;
             if (hideCountdown <= 0)
             {
