@@ -84,6 +84,7 @@ public partial class App : Application
             saveDebugScreenshotsRequested: SaveDebugScreenshots, quitRequested: Shutdown);
         trayIconManager = new TrayIconManager(trayContextMenu.ContextMenuStrip);
         trayIconManager.TrayIconLeftClicked += companionPanelWindow.TogglePanel;
+        clickyConfigurationStore.WatchForHandEdits(Dispatcher);
     }
 
     private void ApplyShowClickySetting(ClickyConfiguration clickyConfiguration)
@@ -126,6 +127,7 @@ public partial class App : Application
             clickyConfigurationStore.ConfigurationChanged -= ApplyShowClickySetting;
             clickyConfigurationStore.ConfigurationChanged -= ApplyPushToTalkShortcutSetting;
             clickyConfigurationStore.ConfigurationChanged -= ApplyVoiceSettings;
+            clickyConfigurationStore.Dispose();
         }
 
         pushToTalkKeyboardHook?.Dispose();

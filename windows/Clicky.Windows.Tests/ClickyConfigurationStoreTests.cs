@@ -78,4 +78,86 @@ public sealed class ClickyConfigurationStoreTests : IDisposable
         Assert.NotNull(clickyConfigurationStore.ConfigurationLoadErrorMessage);
         Assert.Equal(brokenConfigurationJson, File.ReadAllText(TemporaryConfigurationFilePath));
     }
+    private void EditFileByHand(string oldText, string newText) =>
+        File.WriteAllText(TemporaryConfigurationFilePath, File.ReadAllText(TemporaryConfigurationFilePath).Replace(oldText, newText));
+
+    [Fact]
+    public void HandEdit_IsReloadedAndNotified_Once()
+    {
+        using ClickyConfigurationStore clickyConfigurationStore = ClickyConfigurationStore.LoadOrCreate(TemporaryConfigurationFilePath);
+        List<string> whisperModelsReceivedByListener = [];
+        clickyConfigurationStore.ConfigurationChanged += changedConfiguration => whisperModelsReceivedByListener.Add(changedConfiguration.Voice.WhisperModel);
+
+        EditFileByHand("\"base.en\"", "\"small.en\"");
+
+        Assert.True(clickyConfigurationStore.ReloadFromDisk());
+        Assert.False(clickyConfigurationStore.ReloadFromDisk()); // Nothing new on disk.
+        Assert.Equal(["small.en"], whisperModelsReceivedByListener);
+        Assert.Equal("small.en", clickyConfigurationStore.CurrentConfiguration.Voice.WhisperModel);
+    }
+
+    [Fact]
+    public void OwnSave_IsNotMistakenForAHandEdit()
+    {
+        using ClickyConfigurationStore clickyConfigurationStore = ClickyConfigurationStore.LoadOrCreate(TemporaryConfigurationFilePath);
+        clickyConfigurationStore.UpdateAndSave(configuration => configuration.PushToTalkShortcut = "ctrl+shift");
+
+        Assert.False(clickyConfigurationStore.ReloadFromDisk());
+    }
+
+    [Fact]
+    public void TraySave_AfterAHandEdit_KeepsTheHandEdit()
+    {
+        using ClickyConfigurationStore clickyConfigurationStore = ClickyConfigurationStore.LoadOrCreate(TemporaryConfigurationFilePath);
+        EditFileByHand("\"base.en\"", "\"small.en\"");
+        clickyConfigurationStore.ReloadFromDisk();
+
+        clickyConfigurationStore.UpdateAndSave(configuration =>
+            configuration.JobRouting.SetBackendForJob(CompanionJobKind.Pointing, ChatBackendKind.CloudflareWorker));
+
+        ClickyConfiguration savedConfiguration = ClickyConfigurationStore.LoadOrCreate(TemporaryConfigurationFilePath).CurrentConfiguration;
+        Assert.Equal("small.en", savedConfiguration.Voice.WhisperModel);
+        Assert.Equal(ChatBackendKind.CloudflareWorker, savedConfiguration.JobRouting.Pointing);
+    }
+
+    [Fact]
+    public void BrokenHandEdit_KeepsSettingsAndTheFile_UntilItIsFixed()
+    {
+        using ClickyConfigurationStore clickyConfigurationStore = ClickyConfigurationStore.LoadOrCreate(TemporaryConfigurationFilePath);
+        int notificationCount = 0;
+        clickyConfigurationStore.ConfigurationChanged += _ => notificationCount++;
+        EditFileByHand("\"base.en\"", "\"small.en"); // Saved mid-edit: unterminated string.
+        string brokenConfigurationJson = File.ReadAllText(TemporaryConfigurationFilePath);
+
+        Assert.False(clickyConfigurationStore.ReloadFromDisk());
+        Assert.NotNull(clickyConfigurationStore.ConfigurationLoadErrorMessage);
+        Assert.Equal("base.en", clickyConfigurationStore.CurrentConfiguration.Voice.WhisperModel);
+        clickyConfigurationStore.UpdateAndSave(configuration => configuration.PushToTalkShortcut = "ctrl+shift");
+        Assert.Equal(brokenConfigurationJson, File.ReadAllText(TemporaryConfigurationFilePath)); // Tray save didn't clobber it.
+
+        EditFileByHand("\"small.en", "\"small.en\"");
+        Assert.True(clickyConfigurationStore.ReloadFromDisk());
+        Assert.Null(clickyConfigurationStore.ConfigurationLoadErrorMessage);
+        Assert.Equal("small.en", clickyConfigurationStore.CurrentConfiguration.Voice.WhisperModel);
+        Assert.Equal(2, notificationCount); // The tray change and the fixed edit.
+    }
+
+    [Fact]
+    public void WatchForHandEdits_AppliesAnEditorSave_OnTheDispatcherThread()
+    {
+        StaTestThread.Run(() =>
+        {
+            using ClickyConfigurationStore clickyConfigurationStore = ClickyConfigurationStore.LoadOrCreate(TemporaryConfigurationFilePath);
+            int dispatcherThreadId = Environment.CurrentManagedThreadId;
+            TaskCompletionSource<(string WhisperModel, int ThreadId)> reloaded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            clickyConfigurationStore.ConfigurationChanged += changedConfiguration =>
+                reloaded.TrySetResult((changedConfiguration.Voice.WhisperModel, Environment.CurrentManagedThreadId));
+            clickyConfigurationStore.WatchForHandEdits(System.Windows.Threading.Dispatcher.CurrentDispatcher);
+
+            EditFileByHand("\"base.en\"", "\"small.en\"");
+            StaTestThread.WaitFor(reloaded.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+
+            Assert.Equal(("small.en", dispatcherThreadId), reloaded.Task.Result);
+        });
+    }
 }
