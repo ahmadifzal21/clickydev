@@ -275,5 +275,4 @@ Note: the user's config still says `"textToSpeech": "edge-tts"`; that's a legacy
 
 ## Tracker sync pending
 
-(none; E5 T5.1-T5.7 synced to `testing` on 2026-11-05)
-- E7 T7.1, T7.1.1, T7.1.2, T7.2, T7.3, T7.5 -> testing (T7.4 stays todo: deferred; T7.6 is the user's).
+(none; E7 T7.1, T7.1.1, T7.1.2, T7.2, T7.3, T7.5 synced to `testing` on 2026-11-05)
