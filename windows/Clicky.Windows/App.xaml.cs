@@ -120,8 +120,20 @@ public partial class App : Application
         }
         handsFreeCapTimer.Tick += (_, _) => ApplyGesture(pushToTalkGestureRecognizer.HandleTimeElapsed(gestureClock.Elapsed));
         // Raised on the hook thread, which must return fast; the overlay lives on the UI thread.
+        // The time is taken here, when the key moved: the UI thread can be busy for a while starting to listen, and a tap
+        // timed on arrival there would look like a hold.
         pushToTalkKeyboardHook.ShortcutTransitioned += shortcutTransition =>
-            Dispatcher.BeginInvoke(() => ApplyGesture(pushToTalkGestureRecognizer.Handle(shortcutTransition, gestureClock.Elapsed)));
+        {
+            TimeSpan transitionTime = gestureClock.Elapsed;
+            Dispatcher.BeginInvoke(() =>
+            {
+                PushToTalkGestureAction? gestureAction = pushToTalkGestureRecognizer.Handle(shortcutTransition, transitionTime);
+                // Tap and gap timings vary by person and shortcut; this line is how they get tuned.
+                Console.WriteLine($"Push-to-talk {shortcutTransition} at {transitionTime.TotalMilliseconds:F0} ms -> " +
+                    $"{gestureAction?.ToString() ?? (pushToTalkGestureRecognizer.IsHandsFree ? "hands-free" : "nothing")}");
+                ApplyGesture(gestureAction);
+            });
+        };
         if (!pushToTalkKeyboardHook.Start())
         {
             Console.WriteLine("Clicky couldn't install its push-to-talk keyboard hook.");
