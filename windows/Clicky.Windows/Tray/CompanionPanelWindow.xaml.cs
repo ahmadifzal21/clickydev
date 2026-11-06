@@ -113,7 +113,22 @@ public partial class CompanionPanelWindow : Window
                     Content = BackendRoutingPickerRows.GetOptionDisplayName(option),
                     Style = segmentButtonStyle
                 };
-                segmentButton.Click += (_, _) => clickyConfigurationStore.UpdateAndSave(configuration => pickerRow.SetSelectedBackend(configuration, option));
+                // Checked/Unchecked, not Click: UI Automation's Toggle (screen readers, voice control) flips IsChecked without raising Click.
+                segmentButton.Checked += (_, _) =>
+                {
+                    if (pickerRow.GetSelectedBackend(clickyConfigurationStore.CurrentConfiguration) != option)
+                    {
+                        clickyConfigurationStore.UpdateAndSave(configuration => pickerRow.SetSelectedBackend(configuration, option));
+                    }
+                };
+                // A segment can't be turned off directly; only choosing another option moves the selection.
+                segmentButton.Unchecked += (_, _) =>
+                {
+                    if (pickerRow.GetSelectedBackend(clickyConfigurationStore.CurrentConfiguration) == option)
+                    {
+                        segmentButton.IsChecked = true;
+                    }
+                };
                 segmentsGrid.Children.Add(segmentButton);
                 backendSegmentButtons.Add((pickerRow, segmentButton, option));
             }
@@ -157,15 +172,19 @@ public partial class CompanionPanelWindow : Window
             : "The cursor only appears while you talk to Clicky.";
     }
 
-    private void HandleShowClickyToggleClick(object sender, RoutedEventArgs routedEventArgs)
+    // Checked/Unchecked handlers, not Click: UI Automation's Toggle flips IsChecked without raising Click. ApplyConfiguration
+    // also sets IsChecked, so save only when the switch disagrees with the settings.
+    private void HandleShowClickyToggleChanged(object sender, RoutedEventArgs routedEventArgs)
     {
         bool isClickyCursorAlwaysVisible = ShowClickyToggle.IsChecked == true;
+        if (clickyConfigurationStore.CurrentConfiguration.IsClickyCursorAlwaysVisible == isClickyCursorAlwaysVisible) return;
         clickyConfigurationStore.UpdateAndSave(configuration => configuration.IsClickyCursorAlwaysVisible = isClickyCursorAlwaysVisible);
     }
 
-    private void HandleStartWithWindowsToggleClick(object sender, RoutedEventArgs routedEventArgs)
+    private void HandleStartWithWindowsToggleChanged(object sender, RoutedEventArgs routedEventArgs)
     {
         bool startWithWindows = StartWithWindowsToggle.IsChecked == true;
+        if (clickyConfigurationStore.CurrentConfiguration.StartWithWindows == startWithWindows) return;
         clickyConfigurationStore.UpdateAndSave(configuration => configuration.StartWithWindows = startWithWindows);
     }
 

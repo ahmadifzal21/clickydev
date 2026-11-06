@@ -84,7 +84,9 @@
                                Foreground="{StaticResource DS.TextTertiary}" Text="The blue cursor stays on screen." />
                 </StackPanel>
                 <ToggleButton x:Name="ShowClickyToggle" Grid.Column="1" VerticalAlignment="Center"
-                              Style="{StaticResource DS.ToggleSwitch}" Click="HandleShowClickyToggleClick" />
+                              AutomationProperties.Name="Show Clicky"
+                              Style="{StaticResource DS.ToggleSwitch}"
+                              Checked="HandleShowClickyToggleChanged" Unchecked="HandleShowClickyToggleChanged" />
             </Grid>
 
             <!-- Start with Windows toggle (Windows only; HKCU Run value). -->
@@ -100,7 +102,8 @@
                 </StackPanel>
                 <ToggleButton x:Name="StartWithWindowsToggle" Grid.Column="1" VerticalAlignment="Center"
                               AutomationProperties.Name="Start with Windows"
-                              Style="{StaticResource DS.ToggleSwitch}" Click="HandleStartWithWindowsToggleClick" />
+                              Style="{StaticResource DS.ToggleSwitch}"
+                              Checked="HandleStartWithWindowsToggleChanged" Unchecked="HandleStartWithWindowsToggleChanged" />
             </Grid>
 
             <!-- Backend routing pickers: rows built in code from BackendRoutingPickerRows. -->
