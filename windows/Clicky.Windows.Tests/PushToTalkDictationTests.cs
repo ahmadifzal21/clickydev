@@ -146,6 +146,23 @@ public class PushToTalkDictationTests
     });
 
     [Fact]
+    public void DiscardedRecording_IsNeverTranscribed_EvenWithSpeechInIt() => StaTestThread.Run(() =>
+    {
+        bool wasTranscribed = false;
+        using DictationHarness harness = new(_ => { wasTranscribed = true; return Task.FromResult("x"); });
+
+        harness.Press();
+        harness.CreatedWaveIns[^1].Feed(VoiceTestAudio.Tone(1, 0.3f));
+        StaTestThread.WaitFor(harness.PushToTalkDictation.DiscardRecording());
+        StaTestThread.DrainDispatcher();
+
+        Assert.False(wasTranscribed);
+        Assert.Empty(harness.VoiceNotes);
+        Assert.Equal([CompanionVoiceState.Listening, CompanionVoiceState.Idle], harness.VoiceStates);
+        Assert.Equal(1, harness.ReleasesWithoutQuestion);
+    });
+
+    [Fact]
     public void QuietClip_AsksAboutTheMicrophone() => StaTestThread.Run(() =>
     {
         using DictationHarness harness = new(_ => Task.FromResult("x"));

@@ -68,6 +68,9 @@ internal sealed class PushToTalkDictation
         return Task.CompletedTask;
     }
 
+    /// <summary>Stops recording and drops it without a word (a quick tap, which is never a question).</summary>
+    public Task DiscardRecording() => StopRecordingAndTranscribeAsync(isDiscarded: true);
+
     private void StartRecording()
     {
         dictationGeneration++;
@@ -85,7 +88,7 @@ internal sealed class PushToTalkDictation
         interactionStateMachine.Apply(CompanionInteractionTrigger.ShortcutPressed);
     }
 
-    private async Task StopRecordingAndTranscribeAsync()
+    private async Task StopRecordingAndTranscribeAsync(bool isDiscarded = false)
     {
         if (!microphoneRecorder.IsRecording)
         {
@@ -101,6 +104,12 @@ internal sealed class PushToTalkDictation
             if (thisDictationGeneration != dictationGeneration)
             {
                 return; // Pressed again while the device was closing; the new recording owns the state.
+            }
+
+            if (isDiscarded)
+            {
+                FinishWithNote(null);
+                return;
             }
 
             double recordedSeconds = (double)recordedSamples.Length / SpeechClip.SampleRateHertz;

@@ -88,16 +88,40 @@ public partial class App : Application
         // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
         PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
         pushToTalkKeyboardHook = new GlobalPushToTalkKeyboardHook(pushToTalkShortcut);
+        // Hold to talk, or double-tap to listen hands-free until the next tap (E10 T10.9).
+        PushToTalkGestureRecognizer pushToTalkGestureRecognizer = new();
+        System.Diagnostics.Stopwatch gestureClock = System.Diagnostics.Stopwatch.StartNew();
+        System.Windows.Threading.DispatcherTimer handsFreeCapTimer = new();
+        void ApplyGesture(PushToTalkGestureAction? gestureAction)
+        {
+            switch (gestureAction)
+            {
+                case PushToTalkGestureAction.StartListening:
+                    // Like the Mac: talking over Clicky cancels its answer and cuts its speech off.
+                    typedScreenQuestionRunner.InterruptCurrentAnswer();
+                    pushToTalkDictation.HandleShortcutTransition(PushToTalkShortcutTransition.Pressed);
+                    // After the microphone has started; the screen is captured while the user talks (E10 T10.2).
+                    typedScreenQuestionRunner.CaptureOnPress();
+                    break;
+                case PushToTalkGestureAction.StopAndAnswer:
+                    pushToTalkDictation.HandleShortcutTransition(PushToTalkShortcutTransition.Released);
+                    break;
+                case PushToTalkGestureAction.StopAndDiscard:
+                    pushToTalkDictation.DiscardRecording();
+                    break;
+            }
+            handsFreeCapTimer.Stop();
+            if (pushToTalkGestureRecognizer.HandsFreeDeadline is { } handsFreeDeadline)
+            {
+                if (gestureAction is null) companionPanelWindow.SetVoiceNote("Listening hands-free. Tap the shortcut again to send.");
+                handsFreeCapTimer.Interval = TimeSpan.FromTicks(Math.Max(1, (handsFreeDeadline - gestureClock.Elapsed).Ticks));
+                handsFreeCapTimer.Start();
+            }
+        }
+        handsFreeCapTimer.Tick += (_, _) => ApplyGesture(pushToTalkGestureRecognizer.HandleTimeElapsed(gestureClock.Elapsed));
         // Raised on the hook thread, which must return fast; the overlay lives on the UI thread.
         pushToTalkKeyboardHook.ShortcutTransitioned += shortcutTransition =>
-            Dispatcher.BeginInvoke(() =>
-            {
-                // Like the Mac: talking over Clicky cancels its answer and cuts its speech off.
-                if (shortcutTransition == PushToTalkShortcutTransition.Pressed) typedScreenQuestionRunner.InterruptCurrentAnswer();
-                pushToTalkDictation.HandleShortcutTransition(shortcutTransition);
-                // After the microphone has started; the screen is captured while the user talks (E10 T10.2).
-                if (shortcutTransition == PushToTalkShortcutTransition.Pressed) typedScreenQuestionRunner.CaptureOnPress();
-            });
+            Dispatcher.BeginInvoke(() => ApplyGesture(pushToTalkGestureRecognizer.Handle(shortcutTransition, gestureClock.Elapsed)));
         if (!pushToTalkKeyboardHook.Start())
         {
             Console.WriteLine("Clicky couldn't install its push-to-talk keyboard hook.");
