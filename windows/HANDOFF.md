@@ -333,10 +333,4 @@ E8 agent work is done (T8.1-T8.7). T8.8 (end-to-end test on the user's machine) 
 
 ## Tracker sync pending
 
-- E8 T8.1 -> testing
-- E8 T8.2 -> testing
-- E8 T8.3 -> testing
-- E8 T8.4 -> testing
-- E8 T8.5 -> testing
-- E8 T8.6 -> testing
-- E8 T8.7 -> testing
+(none; E8 T8.1-T8.7 synced to `testing` on 2026-11-06)
