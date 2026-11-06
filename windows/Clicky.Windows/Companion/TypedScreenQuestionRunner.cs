@@ -91,12 +91,16 @@ internal sealed class TypedScreenQuestionRunner(
             interactionStateMachine.Apply(willSpeak ? CompanionInteractionTrigger.ReplyReady : CompanionInteractionTrigger.InteractionEnded);
             ShowFinishedResponse(bubbleText);
             if (CompanionScreenQuestion.ResolvePointTarget(pointingParseResult, screenCaptures) is { } pointTarget)
+            {
+                Trace.WriteLine($"Pointing at \"{pointingParseResult.ElementLabel}\" ({pointTarget.X}, {pointTarget.Y}) physical px.");
                 cursorOverlayManager.PointAt(pointTarget.X, pointTarget.Y, pointingParseResult.ElementLabel);
+            }
             if (willSpeak) await textToSpeechSpeaker!.SpeakAsync(bubbleText, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             bubbleText = ""; // Interrupted by a new press, which now owns the state and the overlay.
+            Trace.WriteLine("Answer cancelled by a new press.");
         }
         catch (Exception exception)
         {

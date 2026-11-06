@@ -51,11 +51,18 @@ internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : IC
         }
         finally
         {
-            // The process tree is already dead (CliChatProcess kills it), so nothing should hold these files open.
-            try { Directory.Delete(requestDirectory, recursive: true); }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            // CliChatProcess waits for Codex itself, but after a cancel the rest of the killed tree can hold this folder
+            // (its working directory) for a moment longer, so retry briefly.
+            for (int attempt = 1; ; attempt++)
             {
-                Trace.TraceWarning($"Could not delete Codex temp folder '{requestDirectory}': {exception.Message}");
+                try { Directory.Delete(requestDirectory, recursive: true); break; }
+                catch (DirectoryNotFoundException) { break; }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    if (attempt < 10) { await Task.Delay(200, CancellationToken.None).ConfigureAwait(false); continue; }
+                    Trace.TraceWarning($"Could not delete Codex temp folder '{requestDirectory}': {exception.Message}");
+                    break;
+                }
             }
         }
     }
