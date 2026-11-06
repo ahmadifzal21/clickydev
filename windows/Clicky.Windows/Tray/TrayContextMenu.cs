@@ -10,6 +10,7 @@ namespace Clicky.Windows.Tray;
 internal sealed class TrayContextMenu : IDisposable
 {
     private readonly ClickyConfigurationStore clickyConfigurationStore;
+    private readonly System.Windows.Forms.ToolStripMenuItem startWithWindowsMenuItem = new("Start with Windows");
     private readonly List<(BackendRoutingPickerRow PickerRow, System.Windows.Forms.ToolStripMenuItem OptionItem, ChatBackendKind? Option)> backendOptionMenuItems = [];
 
     public System.Windows.Forms.ContextMenuStrip ContextMenuStrip { get; } = new();
@@ -41,6 +42,9 @@ internal sealed class TrayContextMenu : IDisposable
             ContextMenuStrip.Items.Add(new System.Windows.Forms.ToolStripMenuItem("Config file has errors — using defaults") { Enabled = false });
         }
 
+        startWithWindowsMenuItem.Click += (_, _) =>
+            clickyConfigurationStore.UpdateAndSave(configuration => configuration.StartWithWindows = !configuration.StartWithWindows);
+        ContextMenuStrip.Items.Add(startWithWindowsMenuItem);
         ContextMenuStrip.Items.Add("Open config file", image: null,
             onClick: (_, _) => BackendRoutingPickerRows.OpenConfigurationFileInEditor(clickyConfigurationStore.ConfigurationFilePath));
         // Debug: the whole answer path (capture, routed backend, bubble, pointing) with a typed question instead of voice.
@@ -60,6 +64,7 @@ internal sealed class TrayContextMenu : IDisposable
 
     private void RefreshCheckMarks(ClickyConfiguration clickyConfiguration)
     {
+        startWithWindowsMenuItem.Checked = clickyConfiguration.StartWithWindows;
         foreach ((BackendRoutingPickerRow pickerRow, System.Windows.Forms.ToolStripMenuItem optionItem, ChatBackendKind? option) in backendOptionMenuItems)
         {
             optionItem.Checked = pickerRow.GetSelectedBackend(clickyConfiguration) == option;

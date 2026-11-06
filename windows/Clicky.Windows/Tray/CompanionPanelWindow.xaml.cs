@@ -151,6 +151,7 @@ public partial class CompanionPanelWindow : Window
         ShortcutNoteTextBlock.Visibility = shortcutNote == null ? Visibility.Collapsed : Visibility.Visible;
 
         ShowClickyToggle.IsChecked = clickyConfiguration.IsClickyCursorAlwaysVisible;
+        StartWithWindowsToggle.IsChecked = clickyConfiguration.StartWithWindows;
         ShowClickyDescriptionTextBlock.Text = clickyConfiguration.IsClickyCursorAlwaysVisible
             ? "The blue cursor stays on screen."
             : "The cursor only appears while you talk to Clicky.";
@@ -160,6 +161,12 @@ public partial class CompanionPanelWindow : Window
     {
         bool isClickyCursorAlwaysVisible = ShowClickyToggle.IsChecked == true;
         clickyConfigurationStore.UpdateAndSave(configuration => configuration.IsClickyCursorAlwaysVisible = isClickyCursorAlwaysVisible);
+    }
+
+    private void HandleStartWithWindowsToggleClick(object sender, RoutedEventArgs routedEventArgs)
+    {
+        bool startWithWindows = StartWithWindowsToggle.IsChecked == true;
+        clickyConfigurationStore.UpdateAndSave(configuration => configuration.StartWithWindows = startWithWindows);
     }
 
     private void HandleCloseButtonClick(object sender, RoutedEventArgs routedEventArgs) => HidePanel();

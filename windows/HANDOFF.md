@@ -55,7 +55,7 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
 
 ## Current ticket
 
-**E8 T8.6** (Start with Windows) — not started. T8.5 done.
+**E8 T8.7** (release publish + README) — not started. T8.6 done.
 
 ## Ticket log (newest last)
 
@@ -315,10 +315,15 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
   `%LOCALAPPDATA%\Clicky\logs\clicky-yyyyMMdd.log` (append, shared read, auto-flush, `HH:mm:ss.fff` per file line; the console
   copy is unchanged), deletes all but the newest 7 `clicky-*.log`. Failure to open the log never stops startup. Known limit
   (in code): the file is chosen at startup, no midnight rollover. 2 tests. Smoke (current debug exe): log shows config, Whisper
-  and Kokoro load lines. Note for smoke runs: `bin\Debug
-et8.0-windows\Clicky.exe` is a stale pre-E4 build; use
-  `bin\Debug
-et8.0-windows10.0.19041.0\Clicky.exe` (the T8.2 "app starts" smoke ran the stale one; this run covers T8.2-T8.4).
+  and Kokoro load lines. The log holds transcripts and replies (README says so). Note for smoke runs:
+  `bin\Debug\net8.0-windows\Clicky.exe` is a stale pre-E4 build; use
+  `bin\Debug\net8.0-windows10.0.19041.0\Clicky.exe` (the T8.2 "app starts" smoke ran the stale one; this run covers T8.2-T8.4).
+- T8.6 done: `Configuration/WindowsStartupRegistration.cs` — HKCU `...\CurrentVersion\Run` value `Clicky` = quoted
+  `Environment.ProcessPath` (none under `dotnet Clicky.dll`). `IsEnabled` = the value starts *this* exe (a copy elsewhere doesn't
+  count). Config `startWithWindows` (default false). On start the app sets the config from the registry; any config change
+  (panel toggle, tray "Start with Windows" check item, hand edit) writes/deletes the value; a registry failure is logged and the
+  toggle snaps back to the registry state. Pure command-line helpers tested (9 cases), registry untouched by tests. Live: hand
+  edit on -> value written with this exe's quoted path, off -> value removed (log lines "Start with Windows turned on/off").
 
 ## Tracker sync pending
 
@@ -327,3 +332,4 @@ et8.0-windows10.0.19041.0\Clicky.exe` (the T8.2 "app starts" smoke ran the stale
 - E8 T8.3 -> testing
 - E8 T8.4 -> testing
 - E8 T8.5 -> testing
+- E8 T8.6 -> testing

@@ -58,6 +58,8 @@ public partial class App : Application
             clickyConfigurationStore.CurrentConfiguration.IsClickyCursorAlwaysVisible);
         cursorOverlayManager.CompanionStatusChanged += companionPanelWindow.SetCompanionStatus;
         clickyConfigurationStore.ConfigurationChanged += ApplyShowClickySetting;
+        SyncStartWithWindowsFromRegistry();
+        clickyConfigurationStore.ConfigurationChanged += ApplyStartWithWindowsSetting;
 
         speechToTextTranscriber = SpeechToTextTranscriberFactory.Create(clickyConfigurationStore.CurrentConfiguration.Voice);
         speechToTextTranscriber.StatusChanged += status => Dispatcher.BeginInvoke(() => companionPanelWindow.SetVoiceNote(status));
@@ -108,6 +110,40 @@ public partial class App : Application
         cursorOverlayManager?.SetCursorAlwaysVisible(clickyConfiguration.IsClickyCursorAlwaysVisible);
     }
 
+    /// <summary>The registry is the truth on start (the user may have removed the value, or moved the exe).</summary>
+    private void SyncStartWithWindowsFromRegistry()
+    {
+        bool isRegistered;
+        try
+        {
+            isRegistered = WindowsStartupRegistration.IsEnabled();
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"Couldn't read the Start with Windows setting: {exception.Message}");
+            return;
+        }
+
+        if (clickyConfigurationStore!.CurrentConfiguration.StartWithWindows != isRegistered)
+            clickyConfigurationStore.UpdateAndSave(configuration => configuration.StartWithWindows = isRegistered);
+    }
+
+    private void ApplyStartWithWindowsSetting(ClickyConfiguration clickyConfiguration)
+    {
+        try
+        {
+            if (WindowsStartupRegistration.IsEnabled() == clickyConfiguration.StartWithWindows) return;
+            WindowsStartupRegistration.SetEnabled(clickyConfiguration.StartWithWindows);
+            Console.WriteLine($"Start with Windows turned {(clickyConfiguration.StartWithWindows ? "on" : "off")}.");
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"Couldn't change Start with Windows: {exception.Message}");
+            // Put the toggle back to what the registry really says; that save finds them equal and stops.
+            Dispatcher.BeginInvoke(SyncStartWithWindowsFromRegistry);
+        }
+    }
+
     private void ApplyVoiceSettings(ClickyConfiguration clickyConfiguration)
     {
         speechToTextTranscriber?.Prepare(clickyConfiguration.Voice);
@@ -152,6 +188,7 @@ public partial class App : Application
         if (clickyConfigurationStore is not null)
         {
             clickyConfigurationStore.ConfigurationChanged -= ApplyShowClickySetting;
+            clickyConfigurationStore.ConfigurationChanged -= ApplyStartWithWindowsSetting;
             clickyConfigurationStore.ConfigurationChanged -= ApplyPushToTalkShortcutSetting;
             clickyConfigurationStore.ConfigurationChanged -= ApplyVoiceSettings;
             clickyConfigurationStore.Dispose();

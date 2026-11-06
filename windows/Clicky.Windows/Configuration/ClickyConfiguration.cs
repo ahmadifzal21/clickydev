@@ -71,6 +71,12 @@ public sealed class ClickyConfiguration
     /// a push-to-talk interaction is in progress (transient cursor mode).
     /// </summary>
     public bool IsClickyCursorAlwaysVisible { get; set; } = true;
+
+    /// <summary>
+    /// "Start with Windows" (a per-user Run registry value). On start the app sets this from the registry, which is the
+    /// truth; changing it here (panel, tray or the file) writes or removes the registry value.
+    /// </summary>
+    public bool StartWithWindows { get; set; }
 }
 
 /// <summary>Which backend handles each job, plus the backend to try if that one fails.</summary>

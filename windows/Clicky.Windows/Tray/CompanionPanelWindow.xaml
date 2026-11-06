@@ -87,6 +87,22 @@
                               Style="{StaticResource DS.ToggleSwitch}" Click="HandleShowClickyToggleClick" />
             </Grid>
 
+            <!-- Start with Windows toggle (Windows only; HKCU Run value). -->
+            <Grid Margin="16,12,16,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Start with Windows" FontSize="13" FontWeight="Medium" Foreground="{StaticResource DS.TextPrimary}" />
+                    <TextBlock Margin="0,2,0,0" FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource DS.TextTertiary}"
+                               Text="Clicky opens in the tray when you sign in." />
+                </StackPanel>
+                <ToggleButton x:Name="StartWithWindowsToggle" Grid.Column="1" VerticalAlignment="Center"
+                              AutomationProperties.Name="Start with Windows"
+                              Style="{StaticResource DS.ToggleSwitch}" Click="HandleStartWithWindowsToggleClick" />
+            </Grid>
+
             <!-- Backend routing pickers: rows built in code from BackendRoutingPickerRows. -->
             <TextBlock Margin="16,16,16,6" Text="AI BACKENDS" FontSize="10" FontWeight="SemiBold"
                        Foreground="{StaticResource DS.TextTertiary}" />
