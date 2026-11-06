@@ -1,6 +1,6 @@
 # Agent handoff — Clicky Windows port
 
-RELAY-STATUS: active
+RELAY-STATUS: complete
 
 <!-- The relay (agent-relay/relay.ps1) stops when the line above reads `RELAY-STATUS: complete`.
      Set it to complete only when every ticket in "Scope" is committed. -->
@@ -55,7 +55,7 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
 
 ## Current ticket
 
-**E8 T8.7** (release publish + README) — not started. T8.6 done.
+E8 agent work is done (T8.1-T8.7). T8.8 (end-to-end test on the user's machine) and T8.9 (open the PR) are the user's.
 
 ## Ticket log (newest last)
 
@@ -324,6 +324,12 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
   (panel toggle, tray "Start with Windows" check item, hand edit) writes/deletes the value; a registry failure is logged and the
   toggle snaps back to the registry state. Pure command-line helpers tested (9 cases), registry untouched by tests. Live: hand
   edit on -> value written with this exe's quoted path, off -> value removed (log lines "Start with Windows turned on/off").
+- T8.7 done (2026-11-06): `dotnet publish -c Release` from `windows/Clicky.Windows` -> `bin\Release\net8.0-windows10.0.19041.0\
+  win-x64\publish\`: Clicky.exe 146.5 MB (self-contained single file) + `runtimes\` 59 MB (Whisper CPU + Vulkan natives) +
+  `voices\` (54 Kokoro voices). Published exe: started, log file written, "Whisper small.en loaded and warmed up in 2505 ms
+  (Vulkan runtime)", "Kokoro loaded and warmed up in 2966 ms", working set ~1.58 GB. Root `README.md` got a "Windows port
+  (community)" section: requirements, build/test, publish command and what must ship with the exe, first-run model downloads,
+  config file location + main keys, log location (and that logs hold transcripts). AGENTS.md Windows notes updated for E8.
 
 ## Tracker sync pending
 
@@ -333,3 +339,4 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
 - E8 T8.4 -> testing
 - E8 T8.5 -> testing
 - E8 T8.6 -> testing
+- E8 T8.7 -> testing
