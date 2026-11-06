@@ -22,6 +22,33 @@ public sealed class LiveTextToSpeechTests(ITestOutputHelper output)
 
     private static bool IsEnabled => Environment.GetEnvironmentVariable("CLICKY_LIVE_TTS") == "1";
 
+    /// <summary>
+    /// Silent: the real model synthesizes on the ONNX Runtime the app ships (Foundry Local raised it from 1.22 to 1.31 in
+    /// E10 T10.8, and Kokoro shares it).
+    /// </summary>
+    [Fact]
+    public async Task Kokoro_SynthesizesOnTheSharedOnnxRuntime()
+    {
+        if (!IsEnabled) return;
+        string modelFilePath = await KokoroLocalSpeaker.EnsureModelDownloadedAsync(_ => { }, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromMinutes(20));
+        KokoroInference kokoroInference = KokoroInference.Load(modelFilePath);
+        try
+        {
+            KokoroVoice heartVoice = KokoroVoiceManager.GetVoice("af_heart");
+            int[] tokens = KokoroSharp.Processing.Tokenizer.Tokenize(TypicalReply, KokoroLangCodeHelper.GetLangCode(heartVoice));
+            Stopwatch synthesisStopwatch = Stopwatch.StartNew();
+            float[] samples = kokoroInference.Synthesize(tokens, heartVoice.Features);
+            output.WriteLine($"{samples.Length / 24000.0:0.0} s of audio in {synthesisStopwatch.ElapsedMilliseconds} ms");
+            Assert.True(samples.Length > 24000, "at least a second of speech");
+            Assert.Contains(samples, sample => Math.Abs(sample) > 0.01f);
+        }
+        finally
+        {
+            kokoroInference.Release();
+        }
+    }
+
     [Fact]
     public async Task Kokoro_OnCpu_IsTimed_AndCanBeInterrupted()
     {

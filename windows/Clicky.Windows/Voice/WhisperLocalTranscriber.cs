@@ -15,22 +15,43 @@ internal interface ISpeechToTextTranscriber : IDisposable
 
     /// <param name="samples">16 kHz mono samples in -1..1.</param>
     Task<string> TranscribeAsync(float[] samples, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Starts transcribing while the user is still talking (fed by <see cref="ILiveTranscription.Append"/>), or null when this
+    /// transcriber only works on a finished clip (Whisper) or isn't ready; the clip then goes to <see cref="TranscribeAsync"/>.
+    /// </summary>
+    ILiveTranscription? BeginLiveTranscription() => null;
+}
+
+/// <summary>One push-to-talk recording being transcribed as it is spoken. Dispose drops it (a tap, silence, a new press).</summary>
+internal interface ILiveTranscription : IDisposable
+{
+    /// <param name="samples">The next 16 kHz mono samples in -1..1, as the microphone delivers them (any thread).</param>
+    void Append(float[] samples);
+
+    /// <summary>The recording has ended: the final transcript, ready a moment after the last samples.</summary>
+    Task<string> FinishAsync(CancellationToken cancellationToken);
 }
 
 internal static class SpeechToTextTranscriberFactory
 {
     /// <summary>
-    /// Only Whisper exists for now: AssemblyAI (T6.3) is built only if local transcription feels slow
-    /// end to end after E8, so "assembly-ai" in the config still gets Whisper, with a log line saying so.
+    /// "foundry-local" (the default) is Foundry Local with Whisper as its fallback. AssemblyAI (T6.3) isn't built, so
+    /// "assembly-ai" gets Whisper, with a log line saying so.
     /// </summary>
     public static ISpeechToTextTranscriber Create(VoiceSettings voiceSettings)
     {
-        if (voiceSettings.SpeechToText != SpeechToTextProviderKind.WhisperLocal)
+        switch (voiceSettings.SpeechToText)
         {
-            Console.WriteLine($"Speech-to-text \"{voiceSettings.SpeechToText}\" isn't built yet; using local Whisper.");
+            case SpeechToTextProviderKind.FoundryLocal:
+                return new FallbackSpeechToTextTranscriber(
+                    onUnavailable => new FoundryLocalTranscriber(onUnavailable), () => new WhisperLocalTranscriber());
+            case SpeechToTextProviderKind.WhisperLocal:
+                return new WhisperLocalTranscriber();
+            default:
+                Console.WriteLine($"Speech-to-text \"{voiceSettings.SpeechToText}\" isn't built yet; using local Whisper.");
+                return new WhisperLocalTranscriber();
         }
-
-        return new WhisperLocalTranscriber();
     }
 }
 

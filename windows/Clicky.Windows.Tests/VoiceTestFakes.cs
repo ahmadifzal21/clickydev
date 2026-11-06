@@ -45,10 +45,30 @@ internal sealed class FakeWaveIn : IWaveIn
 
 internal sealed class FakeSpeechToTextTranscriber(Func<float[], Task<string>> transcribe) : ISpeechToTextTranscriber
 {
+    public Func<ILiveTranscription?>? BeginLive { get; init; }
     public event Action<string>? StatusChanged { add { } remove { } }
     public void Prepare(Configuration.VoiceSettings voiceSettings) { }
     public Task<string> TranscribeAsync(float[] samples, CancellationToken cancellationToken) => transcribe(samples);
+    public ILiveTranscription? BeginLiveTranscription() => BeginLive?.Invoke();
     public void Dispose() { }
+}
+
+/// <summary>Counts the samples it is fed; finishes with <paramref name="finish"/> (text or an exception).</summary>
+internal sealed class FakeLiveTranscription(Func<Task<string>> finish) : ILiveTranscription
+{
+    private int appendedSampleCount;
+    public int AppendedSampleCount => Volatile.Read(ref appendedSampleCount);
+    public bool IsFinished { get; private set; }
+    public bool IsDisposed { get; private set; }
+    public void Append(float[] samples) => Interlocked.Add(ref appendedSampleCount, samples.Length);
+
+    public Task<string> FinishAsync(CancellationToken cancellationToken)
+    {
+        IsFinished = true;
+        return finish();
+    }
+
+    public void Dispose() => IsDisposed = true;
 }
 
 internal static class VoiceTestAudio

@@ -28,11 +28,17 @@ public enum CompanionJobKind
     Pointing
 }
 
-/// <summary>Speech-to-text engines. Serialized as "whisper-local" / "assembly-ai".</summary>
+/// <summary>Speech-to-text engines. Serialized as "foundry-local" / "whisper-local" / "assembly-ai".</summary>
 public enum SpeechToTextProviderKind
 {
     WhisperLocal,
-    AssemblyAi
+    AssemblyAi,
+
+    /// <summary>
+    /// Foundry Local's live model (Nemotron Speech Streaming 0.6B, on the CPU), transcribing while the shortcut is held, with
+    /// local Whisper as the fallback (E10 T10.8).
+    /// </summary>
+    FoundryLocal
 }
 
 /// <summary>Text-to-speech engines. Serialized as "kokoro-local" / "eleven-labs".</summary>
@@ -152,9 +158,9 @@ public sealed class CloudflareWorkerBackendSettings
 
 public sealed class VoiceSettings
 {
-    public SpeechToTextProviderKind SpeechToText { get; set; } = SpeechToTextProviderKind.WhisperLocal;
+    public SpeechToTextProviderKind SpeechToText { get; set; } = SpeechToTextProviderKind.FoundryLocal;
 
-    /// <summary>Whisper GGML model name, downloaded on first use (for example "base.en", "small.en").</summary>
+    /// <summary>Whisper GGML model name, downloaded on first use (for example "base.en", "small.en"); also Foundry's fallback.</summary>
     public string WhisperModel { get; set; } = "base.en";
 
     public TextToSpeechProviderKind TextToSpeech { get; set; } = TextToSpeechProviderKind.KokoroLocal;

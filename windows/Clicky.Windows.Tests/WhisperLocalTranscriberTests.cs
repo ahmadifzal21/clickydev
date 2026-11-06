@@ -211,7 +211,7 @@ public class WhisperLocalTranscriberTests
     [Theory]
     [InlineData(SpeechToTextProviderKind.WhisperLocal)]
     [InlineData(SpeechToTextProviderKind.AssemblyAi)] // Not built yet: still gets Whisper.
-    public void Factory_AlwaysCreatesLocalWhisper(SpeechToTextProviderKind speechToTextProviderKind)
+    public void Factory_CreatesLocalWhisper_ForWhisperAndUnbuiltProviders(SpeechToTextProviderKind speechToTextProviderKind)
     {
         using ISpeechToTextTranscriber speechToTextTranscriber =
             SpeechToTextTranscriberFactory.Create(new VoiceSettings { SpeechToText = speechToTextProviderKind });

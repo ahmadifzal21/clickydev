@@ -8,6 +8,9 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- Foundry Local's runtime package sets RuntimeIdentifier to the SDK's (win-x64) when none is given, but only at build
+         time; listing it here makes restore produce the matching assets. Clicky only ships win-x64. -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>

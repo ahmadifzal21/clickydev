@@ -36,6 +36,9 @@ internal sealed class MicrophoneRecorder
     /// <summary>Raised on the NAudio callback thread with the Mac-style 0..1 level, about every 50 ms.</summary>
     public event Action<double>? AudioPowerLevelChanged;
 
+    /// <summary>Raised on the NAudio callback thread with each new buffer of samples (-1..1), for live transcription.</summary>
+    public event Action<float[]>? SamplesRecorded;
+
     public bool IsRecording => activeWaveIn is not null;
 
     /// <summary>Starts recording. Throws <see cref="MicrophoneUnavailableException"/> with a fix-it message.</summary>
@@ -117,6 +120,7 @@ internal sealed class MicrophoneRecorder
             recordedSamples.AddRange(bufferSamples);
         }
 
+        SamplesRecorded?.Invoke(bufferSamples);
         currentAudioPowerLevel = SpeechClip.GetSmoothedAudioPowerLevel(bufferSamples, currentAudioPowerLevel);
         AudioPowerLevelChanged?.Invoke(currentAudioPowerLevel);
     }

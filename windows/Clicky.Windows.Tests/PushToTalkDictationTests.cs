@@ -23,7 +23,7 @@ public class PushToTalkDictationTests
         public PushToTalkDictation PushToTalkDictation { get; }
 
         public DictationHarness(Func<float[], Task<string>> transcribe, int inputDeviceCount = 1, bool raisesStoppedWhenStopped = true,
-            Func<string, int, CancellationToken, Task>? answerTranscriptAsync = null)
+            Func<string, int, CancellationToken, Task>? answerTranscriptAsync = null, Func<ILiveTranscription?>? beginLiveTranscription = null)
         {
             CompanionTurnEventLog turnEventLog = new();
             CursorOverlayManager = new CursorOverlayManager(displayMonitorCatalog, isCursorAlwaysVisible: false);
@@ -38,7 +38,8 @@ public class PushToTalkDictationTests
                 CreatedWaveIns.Add(fakeWaveIn);
                 return fakeWaveIn;
             }, () => inputDeviceCount);
-            PushToTalkDictation = new PushToTalkDictation(CursorOverlayManager, new FakeSpeechToTextTranscriber(transcribe),
+            PushToTalkDictation = new PushToTalkDictation(CursorOverlayManager,
+                new FakeSpeechToTextTranscriber(transcribe) { BeginLive = beginLiveTranscription },
                 VoiceNotes.Add, Dispatcher.CurrentDispatcher, microphoneRecorder, answerTranscriptAsync: answerTranscriptAsync,
                 turnEventLog: turnEventLog, onReleaseWithoutQuestion: () => ReleasesWithoutQuestion++);
         }
@@ -143,6 +144,50 @@ public class PushToTalkDictationTests
         Assert.Empty(harness.VoiceNotes);
         Assert.Equal([CompanionVoiceState.Listening, CompanionVoiceState.Idle], harness.VoiceStates);
         Assert.Equal(1, harness.ReleasesWithoutQuestion);
+    });
+
+    [Fact]
+    public void LiveTranscription_IsFedWhileTalking_AndItsTextIsAnswered() => StaTestThread.Run(() =>
+    {
+        bool wasTranscribedAfterRelease = false;
+        FakeLiveTranscription liveTranscription = new(() => Task.FromResult("where is save"));
+        List<string> answeredTranscripts = [];
+        using DictationHarness harness = new(_ => { wasTranscribedAfterRelease = true; return Task.FromResult("x"); },
+            answerTranscriptAsync: (transcript, _, _) => { answeredTranscripts.Add(transcript); return Task.CompletedTask; },
+            beginLiveTranscription: () => liveTranscription);
+
+        harness.SpeakAndRelease(VoiceTestAudio.Tone(1, 0.3f));
+
+        Assert.Equal(16000, liveTranscription.AppendedSampleCount);
+        Assert.True(liveTranscription.IsFinished);
+        Assert.True(liveTranscription.IsDisposed);
+        Assert.False(wasTranscribedAfterRelease);
+        Assert.Equal(["where is save"], answeredTranscripts);
+    });
+
+    [Fact]
+    public void FailedLiveTranscription_FallsBackToTheRecording() => StaTestThread.Run(() =>
+    {
+        List<string> answeredTranscripts = [];
+        using DictationHarness harness = new(samples => Task.FromResult($"from the recording ({samples.Length} samples)"),
+            answerTranscriptAsync: (transcript, _, _) => { answeredTranscripts.Add(transcript); return Task.CompletedTask; },
+            beginLiveTranscription: () => new FakeLiveTranscription(() => Task.FromException<string>(new InvalidOperationException("native error"))));
+
+        harness.SpeakAndRelease(VoiceTestAudio.Tone(1, 0.3f));
+
+        Assert.Equal(["from the recording (16000 samples)"], answeredTranscripts);
+    });
+
+    [Fact]
+    public void Tap_DropsTheLiveTranscription_WithoutFinishingIt() => StaTestThread.Run(() =>
+    {
+        FakeLiveTranscription liveTranscription = new(() => Task.FromResult("never"));
+        using DictationHarness harness = new(_ => Task.FromResult("x"), beginLiveTranscription: () => liveTranscription);
+
+        harness.SpeakAndRelease(VoiceTestAudio.Tone(0.1, 0.3f));
+
+        Assert.False(liveTranscription.IsFinished);
+        Assert.True(liveTranscription.IsDisposed);
     });
 
     [Fact]

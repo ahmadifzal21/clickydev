@@ -55,7 +55,7 @@ public sealed class LiveWhisperTranscriptionTests(ITestOutputHelper output)
         output.WriteLine($"{whisperModelName} 3 s clip in {shortClipStopwatch.ElapsedMilliseconds} ms: {shortClipTranscript}");
     }
 
-    private static async Task<float[]> DownloadJfkSampleAsync()
+    internal static async Task<float[]> DownloadJfkSampleAsync()
     {
         using HttpClient httpClient = new();
         byte[] wavBytes = await httpClient.GetByteArrayAsync("https://github.com/ggml-org/whisper.cpp/raw/master/samples/jfk.wav");

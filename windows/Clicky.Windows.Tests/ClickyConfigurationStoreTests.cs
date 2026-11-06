@@ -29,7 +29,7 @@ public sealed class ClickyConfigurationStoreTests : IDisposable
 
         string writtenConfigurationJson = File.ReadAllText(TemporaryConfigurationFilePath);
         Assert.Contains("\"answer\": \"claude-code-cli\"", writtenConfigurationJson);
-        Assert.Contains("\"speechToText\": \"whisper-local\"", writtenConfigurationJson);
+        Assert.Contains("\"speechToText\": \"foundry-local\"", writtenConfigurationJson);
         Assert.Contains("\"pushToTalkShortcut\": \"ctrl+alt\"", writtenConfigurationJson);
         Assert.Contains("\"textToSpeech\": \"kokoro-local\"", writtenConfigurationJson);
         Assert.Contains("\"kokoroVoice\": \"af_heart\"", writtenConfigurationJson);

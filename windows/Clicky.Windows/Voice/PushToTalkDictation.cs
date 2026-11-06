@@ -34,6 +34,9 @@ internal sealed class PushToTalkDictation
     /// <summary>Bumped on every press, so a slow transcription from an earlier press can't overwrite a newer state.</summary>
     private int dictationGeneration;
 
+    /// <summary>The current recording's live transcription (fed from the microphone thread), or null for Whisper-style.</summary>
+    private volatile ILiveTranscription? liveTranscription;
+
     public PushToTalkDictation(CursorOverlayManager cursorOverlayManager, ISpeechToTextTranscriber speechToTextTranscriber,
         Action<string> showVoiceNote, Dispatcher dispatcher, MicrophoneRecorder? microphoneRecorder = null,
         CompanionInteractionStateMachine? interactionStateMachine = null,
@@ -51,6 +54,7 @@ internal sealed class PushToTalkDictation
         // Levels arrive on NAudio's callback thread; the waveform lives on the UI thread.
         this.microphoneRecorder.AudioPowerLevelChanged += audioPowerLevel =>
             dispatcher.BeginInvoke(() => cursorOverlayManager.SetAudioPowerLevel(audioPowerLevel));
+        this.microphoneRecorder.SamplesRecorded += samples => liveTranscription?.Append(samples);
     }
 
     /// <summary>The returned task finishes when a release has been transcribed (the app ignores it; tests await it).</summary>
@@ -75,12 +79,16 @@ internal sealed class PushToTalkDictation
     {
         dictationGeneration++;
         cursorOverlayManager.ShowTransiently();
+        liveTranscription?.Dispose();
+        liveTranscription = speechToTextTranscriber.BeginLiveTranscription(); // Before the microphone, so no buffer is missed.
         try
         {
             microphoneRecorder.Start();
         }
         catch (MicrophoneUnavailableException microphoneUnavailableException)
         {
+            liveTranscription?.Dispose();
+            liveTranscription = null;
             FinishWithNote(microphoneUnavailableException.Message);
             return;
         }
@@ -98,9 +106,11 @@ internal sealed class PushToTalkDictation
         int thisDictationGeneration = dictationGeneration;
         int turnId = turnEventLog.StartTurn("release");
         bool isAnswering = false;
+        ILiveTranscription? thisLiveTranscription = liveTranscription;
         try
         {
-            float[] recordedSamples = await microphoneRecorder.StopAsync();
+            float[] recordedSamples = await microphoneRecorder.StopAsync(); // The last buffers still reach the live transcription.
+            if (liveTranscription == thisLiveTranscription) liveTranscription = null;
             if (thisDictationGeneration != dictationGeneration)
             {
                 return; // Pressed again while the device was closing; the new recording owns the state.
@@ -134,9 +144,26 @@ internal sealed class PushToTalkDictation
             string transcript = "";
             try
             {
-                transcript = await speechToTextTranscriber.TranscribeAsync(recordedSamples, CancellationToken.None);
+                string transcribedHow = "after the release";
+                if (thisLiveTranscription is not null)
+                {
+                    try
+                    {
+                        transcript = await thisLiveTranscription.FinishAsync(CancellationToken.None);
+                        transcribedHow = "live";
+                    }
+                    catch (Exception liveException)
+                    {
+                        Console.WriteLine($"Live transcription failed ({liveException.Message}); transcribing the recording instead.");
+                        transcript = await speechToTextTranscriber.TranscribeAsync(recordedSamples, CancellationToken.None);
+                    }
+                }
+                else
+                {
+                    transcript = await speechToTextTranscriber.TranscribeAsync(recordedSamples, CancellationToken.None);
+                }
                 turnEventLog.Append(turnId, CompanionTurnEventKind.TranscriptReady, transcript);
-                Console.WriteLine($"Transcribed {recordedSeconds:0.0} s of audio in {transcriptionStopwatch.ElapsedMilliseconds} ms: \"{transcript}\"");
+                Console.WriteLine($"Transcribed {recordedSeconds:0.0} s of audio {transcribedHow}, ready {transcriptionStopwatch.ElapsedMilliseconds} ms after: \"{transcript}\"");
                 voiceNote = transcript.Length == 0 ? "Didn't catch any words." : $"Heard: \"{transcript}\"";
             }
             catch (Exception exception)
@@ -158,6 +185,7 @@ internal sealed class PushToTalkDictation
         }
         finally
         {
+            thisLiveTranscription?.Dispose(); // Finished, or dropped (a tap, silence, a newer press).
             if (!isAnswering)
             {
                 turnEventLog.Append(turnId, CompanionTurnEventKind.TurnEnded);
