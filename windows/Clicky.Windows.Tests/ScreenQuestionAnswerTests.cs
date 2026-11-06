@@ -1,3 +1,4 @@
+using Clicky.Windows.ScreenCapture;
 using System.Windows.Threading;
 using Clicky.Windows.AI;
 using Clicky.Windows.Companion;
@@ -42,12 +43,14 @@ public class ScreenQuestionAnswerTests
     private sealed class FakeBackend(Func<CancellationToken, Task<string>> reply) : ICompanionChatBackend
     {
         public List<string> UserPrompts { get; } = [];
+        public List<string> ImageLabels { get; } = [];
         public ChatBackendKind BackendKind => ChatBackendKind.ClaudeCodeCli;
         public string DisplayName => "fake";
 
         public Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
         {
             UserPrompts.Add(companionChatRequest.UserPrompt);
+            ImageLabels.AddRange(companionChatRequest.LabeledScreenshotImages.Select(image => image.ImageLabel));
             return reply(cancellationToken);
         }
     }
@@ -111,6 +114,66 @@ public class ScreenQuestionAnswerTests
 
             Assert.Matches(@"^Turn timing from release: transcript [\d.]+ s, capture [\d.]+ s, answer [\d.]+ s, first sound [\d.]+ s, done [\d.]+ s$",
                 turnTimeline.Describe());
+        });
+
+    private static CompanionScreenCapture FakePressCapture()
+    {
+        PixelRect bounds = new(0, 0, 1920, 1080);
+        return new CompanionScreenCapture([0xFF, 0xD8], "captured at the press", true,
+            new DisplayMonitor("D", bounds, bounds, 96, 96, true), 1280, 720, ScreenCaptureMethod.WindowsGraphicsCapture, TimeSpan.Zero);
+    }
+
+    [Fact]
+    public void CaptureFromThePress_IsSentInsteadOfANewOne() =>
+        StaTestThread.Run(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            FakeBackend backend = new(_ => Task.FromResult("there. [POINT:none]"));
+            ChatBackendRouter router = new(() => new JobBackendRouting { Answer = ChatBackendKind.ClaudeCodeCli, Fallback = null }, [backend]);
+            TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, new CompanionConversationHistory());
+
+            StaTestThread.WaitFor(runner.AnswerAsync("where is it",
+                screenCapturesTask: Task.FromResult<IReadOnlyList<CompanionScreenCapture>>([FakePressCapture()])));
+
+            Assert.Equal(["captured at the press (image dimensions: 1280x720 pixels)"], backend.ImageLabels);
+        });
+
+    [Fact]
+    public void CaptureFromThePress_IsHandedOutOnce() =>
+        StaTestThread.Run(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            ChatBackendRouter router = new(() => new JobBackendRouting(), [new FakeBackend(_ => Task.FromResult(""))]);
+            TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, new CompanionConversationHistory());
+
+            Assert.Null(runner.TakeCaptureFromPress());
+            runner.CaptureOnPress();
+            Task<IReadOnlyList<CompanionScreenCapture>>? pressCapture = runner.TakeCaptureFromPress();
+            Assert.NotNull(pressCapture);
+            Assert.Null(runner.TakeCaptureFromPress());
+            StaTestThread.WaitFor(pressCapture!);
+            Assert.NotEmpty(pressCapture!.Result);
+        });
+
+    [Fact]
+    public void Interrupt_WhileWaitingForThePressCapture_CancelsTheTurn() =>
+        StaTestThread.Run(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            FakeBackend backend = new(_ => Task.FromResult("never asked"));
+            ChatBackendRouter router = new(() => new JobBackendRouting { Answer = ChatBackendKind.ClaudeCodeCli, Fallback = null }, [backend]);
+            TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, new CompanionConversationHistory());
+            TaskCompletionSource<IReadOnlyList<CompanionScreenCapture>> slowCapture = new();
+
+            Task<string> answerTask = runner.AnswerAsync("where is it", screenCapturesTask: slowCapture.Task);
+            runner.InterruptCurrentAnswer();
+            StaTestThread.WaitFor(answerTask);
+
+            Assert.Equal("", answerTask.Result);
+            Assert.Empty(backend.UserPrompts);
         });
 
     [Fact]

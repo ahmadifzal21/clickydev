@@ -76,7 +76,8 @@ public partial class App : Application
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
             companionPanelWindow.SetVoiceNote, Dispatcher, interactionStateMachine: companionInteractionStateMachine,
             answerTranscriptAsync: (transcript, turnTimeline, cancellationToken) =>
-                typedScreenQuestionRunner.AnswerAsync(transcript, callerCancellationToken: cancellationToken, turnTimeline: turnTimeline));
+                typedScreenQuestionRunner.AnswerAsync(transcript, callerCancellationToken: cancellationToken, turnTimeline: turnTimeline,
+                    screenCapturesTask: typedScreenQuestionRunner.TakeCaptureFromPress()));
 
         // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
         PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
@@ -88,6 +89,8 @@ public partial class App : Application
                 // Like the Mac: talking over Clicky cancels its answer and cuts its speech off.
                 if (shortcutTransition == PushToTalkShortcutTransition.Pressed) typedScreenQuestionRunner.InterruptCurrentAnswer();
                 pushToTalkDictation.HandleShortcutTransition(shortcutTransition);
+                // After the microphone has started; the screen is captured while the user talks (E10 T10.2).
+                if (shortcutTransition == PushToTalkShortcutTransition.Pressed) typedScreenQuestionRunner.CaptureOnPress();
             });
         if (!pushToTalkKeyboardHook.Start())
         {

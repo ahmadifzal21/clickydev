@@ -28,6 +28,29 @@ internal sealed class TypedScreenQuestionRunner(
     /// <summary>The in-flight turn's cancellation; <see cref="InterruptCurrentAnswer"/> fires it.</summary>
     private CancellationTokenSource? currentAnswerCancellation;
 
+    /// <summary>Started by <see cref="CaptureOnPress"/>, used once by the voice turn that the press leads to.</summary>
+    private Task<IReadOnlyList<CompanionScreenCapture>>? captureFromPress;
+
+    /// <summary>
+    /// Push-to-talk press: capture now, while the user talks, so the turn doesn't wait for it after the release. The screen at
+    /// the press is what the question is about (HeyClicky captures at release). A tap or an empty transcript leaves it unused;
+    /// the next press replaces it.
+    /// </summary>
+    public void CaptureOnPress()
+    {
+        captureFromPress = CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, CancellationToken.None);
+        // A failure surfaces in the turn that uses it; one that is never used must not go unobserved.
+        captureFromPress.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+    }
+
+    /// <summary>The press's capture for the voice turn that follows it (null if there was none); each capture is used once.</summary>
+    public Task<IReadOnlyList<CompanionScreenCapture>>? TakeCaptureFromPress()
+    {
+        Task<IReadOnlyList<CompanionScreenCapture>>? pressCapture = captureFromPress;
+        captureFromPress = null;
+        return pressCapture;
+    }
+
     /// <summary>
     /// A new push-to-talk press talks over Clicky (Mac: currentResponseTask?.cancel() + stopPlayback): cancels the in-flight
     /// turn (capture, the backend request — CLI process trees are killed — and speech), stops any speech and drops the bubble.
@@ -56,9 +79,11 @@ internal sealed class TypedScreenQuestionRunner(
     /// One full turn for <paramref name="userQuestion"/>; returns the text put in the bubble (reply or error). Ends Idle with
     /// the transient hide scheduled, unless <paramref name="cancellationToken"/> fired (a new press owns the state then).
     /// The turn's stages are added to <paramref name="turnTimeline"/> (a voice turn's starts at the key release) and logged.
+    /// <paramref name="screenCapturesTask"/> is a capture already started (at the key press); without one the turn captures now.
     /// </summary>
     internal async Task<string> AnswerAsync(string userQuestion, TimeSpan delayBeforeCapture = default,
-        CancellationToken callerCancellationToken = default, TurnTimeline? turnTimeline = null)
+        CancellationToken callerCancellationToken = default, TurnTimeline? turnTimeline = null,
+        Task<IReadOnlyList<CompanionScreenCapture>>? screenCapturesTask = null)
     {
         turnTimeline ??= new TurnTimeline("question");
         Action markFirstSound = () => turnTimeline.Mark("first sound");
@@ -76,8 +101,9 @@ internal sealed class TypedScreenQuestionRunner(
         {
             if (delayBeforeCapture > TimeSpan.Zero) await Task.Delay(delayBeforeCapture, cancellationToken);
             Stopwatch stopwatch = Stopwatch.StartNew();
-            IReadOnlyList<CompanionScreenCapture> screenCaptures =
-                await CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, cancellationToken);
+            IReadOnlyList<CompanionScreenCapture> screenCaptures = await (screenCapturesTask
+                ?? CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, cancellationToken))
+                .WaitAsync(cancellationToken);
             TimeSpan captureDuration = stopwatch.Elapsed;
             turnTimeline.Mark("capture");
 
