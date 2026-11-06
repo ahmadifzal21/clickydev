@@ -25,6 +25,20 @@ internal sealed class TypedScreenQuestionRunner(
         interactionStateMachine ?? new CompanionInteractionStateMachine(cursorOverlayManager.SetVoiceState);
     private bool isRunning;
 
+    /// <summary>The in-flight turn's cancellation; <see cref="InterruptCurrentAnswer"/> fires it.</summary>
+    private CancellationTokenSource? currentAnswerCancellation;
+
+    /// <summary>
+    /// A new push-to-talk press talks over Clicky (Mac: currentResponseTask?.cancel() + stopPlayback): cancels the in-flight
+    /// turn (capture, the backend request — CLI process trees are killed — and speech), stops any speech and drops the bubble.
+    /// </summary>
+    public void InterruptCurrentAnswer()
+    {
+        currentAnswerCancellation?.Cancel();
+        textToSpeechSpeaker?.StopSpeaking();
+        cursorOverlayManager.HideResponse();
+    }
+
     /// <summary>Asks for a question, answers it; clicks while a question is in flight are ignored.</summary>
     public async void Run()
     {
@@ -43,10 +57,14 @@ internal sealed class TypedScreenQuestionRunner(
     /// the transient hide scheduled, unless <paramref name="cancellationToken"/> fired (a new press owns the state then).
     /// </summary>
     internal async Task<string> AnswerAsync(string userQuestion, TimeSpan delayBeforeCapture = default,
-        CancellationToken cancellationToken = default)
+        CancellationToken callerCancellationToken = default)
     {
         isRunning = true;
         string bubbleText;
+        currentAnswerCancellation?.Cancel(); // Only one turn at a time; the newest wins.
+        using CancellationTokenSource answerCancellation = CancellationTokenSource.CreateLinkedTokenSource(callerCancellationToken);
+        currentAnswerCancellation = answerCancellation;
+        CancellationToken cancellationToken = answerCancellation.Token;
         cursorOverlayManager.ShowTransiently();
         // A voice turn is already Processing (the trigger is ignored then); a typed one starts here.
         interactionStateMachine.Apply(CompanionInteractionTrigger.TypedQuestionAsked);
@@ -78,8 +96,7 @@ internal sealed class TypedScreenQuestionRunner(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            isRunning = false;
-            return ""; // Interrupted by a new press, which now owns the state and the overlay.
+            bubbleText = ""; // Interrupted by a new press, which now owns the state and the overlay.
         }
         catch (Exception exception)
         {
@@ -91,7 +108,11 @@ internal sealed class TypedScreenQuestionRunner(
             if (textToSpeechSpeaker is not null) await SpeakErrorLineAsync(textToSpeechSpeaker, cancellationToken);
         }
 
-        isRunning = false;
+        if (currentAnswerCancellation == answerCancellation)
+        {
+            currentAnswerCancellation = null;
+            isRunning = false;
+        }
         if (cancellationToken.IsCancellationRequested) return bubbleText;
         interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
         cursorOverlayManager.ScheduleTransientHide();

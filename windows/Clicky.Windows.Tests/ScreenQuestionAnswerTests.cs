@@ -30,11 +30,12 @@ public class ScreenQuestionAnswerTests
         }
 
         public bool IsSpeaking => false;
-        public void StopSpeaking() { }
+        public int StopCount { get; private set; }
+        public void StopSpeaking() => StopCount++;
         public void Dispose() { }
     }
 
-    private sealed class FakeBackend(Func<string> reply) : ICompanionChatBackend
+    private sealed class FakeBackend(Func<CancellationToken, Task<string>> reply) : ICompanionChatBackend
     {
         public List<string> UserPrompts { get; } = [];
         public ChatBackendKind BackendKind => ChatBackendKind.ClaudeCodeCli;
@@ -43,11 +44,15 @@ public class ScreenQuestionAnswerTests
         public Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
         {
             UserPrompts.Add(companionChatRequest.UserPrompt);
-            return Task.FromResult(reply());
+            return reply(cancellationToken);
         }
     }
 
     private static void RunAnswer(Func<string> reply, Action<string, FakeSpeaker, FakeBackend, List<CompanionVoiceState>, CursorOverlayManager> check) =>
+        RunAnswer(_ => Task.FromResult(reply()), (_, _) => { }, check);
+
+    private static void RunAnswer(Func<CancellationToken, Task<string>> reply, Action<TypedScreenQuestionRunner, CompanionInteractionStateMachine> whileAnswering,
+        Action<string, FakeSpeaker, FakeBackend, List<CompanionVoiceState>, CursorOverlayManager> check) =>
         StaTestThread.Run(() =>
         {
             using DisplayMonitorCatalog displayMonitorCatalog = new();
@@ -64,6 +69,7 @@ public class ScreenQuestionAnswerTests
             stateMachine.Apply(CompanionInteractionTrigger.ShortcutPressed);
             stateMachine.Apply(CompanionInteractionTrigger.RecordingFinished);
             Task<string> answerTask = runner.AnswerAsync("where is the start button");
+            whileAnswering(runner, stateMachine);
             StaTestThread.WaitFor(answerTask);
             check(answerTask.Result, speaker, backend, voiceStates, cursorOverlayManager);
         });
@@ -95,4 +101,35 @@ public class ScreenQuestionAnswerTests
             Assert.False(cursorOverlayManager.IsPointing);
             Assert.True(cursorOverlayManager.IsShowingResponse);
         });
+
+    [Fact]
+    public void NewPress_CancelsTheInFlightAnswer_StopsSpeech_AndKeepsListening()
+    {
+        bool sawCancellation = false;
+        TaskCompletionSource backendStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        RunAnswer(
+            async cancellationToken =>
+            {
+                backendStarted.SetResult();
+                try { await Task.Delay(Timeout.Infinite, cancellationToken); }
+                catch (OperationCanceledException) { sawCancellation = true; throw; }
+                return "never";
+            },
+            (runner, stateMachine) =>
+            {
+                StaTestThread.WaitFor(backendStarted.Task); // Interrupt mid-request, after the capture.
+                // What the app does on a press: interrupt, then dictation starts listening.
+                runner.InterruptCurrentAnswer();
+                stateMachine.Apply(CompanionInteractionTrigger.ShortcutPressed);
+            },
+            (bubbleText, speaker, _, voiceStates, cursorOverlayManager) =>
+            {
+                Assert.True(sawCancellation);
+                Assert.Equal("", bubbleText);
+                Assert.Empty(speaker.SpokenTexts);
+                Assert.Equal(1, speaker.StopCount);
+                Assert.Equal(CompanionVoiceState.Listening, voiceStates[^1]);
+                Assert.False(cursorOverlayManager.IsShowingResponse);
+            });
+    }
 }

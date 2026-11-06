@@ -55,7 +55,7 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
 
 ## Current ticket
 
-**E8 T8.3** (interrupt) — not started. T8.2 done.
+**E8 T8.4** (transient cursor) — not started. T8.3 done.
 
 ## Ticket log (newest last)
 
@@ -299,8 +299,15 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
   spoken line (`SpokenErrorLine`). `AnswerAsync` takes a CancellationToken (passed into capture, router and speech; a cancelled
   turn leaves the state to the new press) — T8.3 supplies it. Transcription errors still go to the panel note only.
   Tests: `ScreenQuestionAnswerTests` (real capture/overlay, fake backend + speaker) and 2 dictation hand-off tests. Smoke: app starts.
+- T8.3 done: `TypedScreenQuestionRunner` keeps the in-flight turn's CancellationTokenSource (linked to the caller's; a new turn
+  cancels the old one). `InterruptCurrentAnswer()` cancels it (capture / router -> CLI process tree killed by `CliChatProcess` /
+  speech), calls `StopSpeaking` and hides the bubble; App calls it on every press, before dictation starts listening. A cancelled
+  turn doesn't touch the state or the transient hide (the new press owns them). A transcription still running from an older press
+  is dropped by the existing generation check. Test: backend blocked mid-request, interrupt -> backend sees cancellation, nothing
+  spoken, Stop called, state stays Listening, no bubble.
 
 ## Tracker sync pending
 
 - E8 T8.1 -> testing
 - E8 T8.2 -> testing
+- E8 T8.3 -> testing

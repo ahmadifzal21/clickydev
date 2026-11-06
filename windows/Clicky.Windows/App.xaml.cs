@@ -72,7 +72,7 @@ public partial class App : Application
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
             companionPanelWindow.SetVoiceNote, Dispatcher, interactionStateMachine: companionInteractionStateMachine,
             answerTranscriptAsync: (transcript, cancellationToken) =>
-                typedScreenQuestionRunner.AnswerAsync(transcript, cancellationToken: cancellationToken));
+                typedScreenQuestionRunner.AnswerAsync(transcript, callerCancellationToken: cancellationToken));
 
         // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
         PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
@@ -81,8 +81,8 @@ public partial class App : Application
         pushToTalkKeyboardHook.ShortcutTransitioned += shortcutTransition =>
             Dispatcher.BeginInvoke(() =>
             {
-                // Like the Mac: talking over Clicky cuts its speech off.
-                if (shortcutTransition == PushToTalkShortcutTransition.Pressed) textToSpeechSpeaker.StopSpeaking();
+                // Like the Mac: talking over Clicky cancels its answer and cuts its speech off.
+                if (shortcutTransition == PushToTalkShortcutTransition.Pressed) typedScreenQuestionRunner.InterruptCurrentAnswer();
                 pushToTalkDictation.HandleShortcutTransition(shortcutTransition);
             });
         if (!pushToTalkKeyboardHook.Start())
