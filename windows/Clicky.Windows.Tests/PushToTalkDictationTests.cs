@@ -23,7 +23,7 @@ public class PushToTalkDictationTests
         public PushToTalkDictation PushToTalkDictation { get; }
 
         public DictationHarness(Func<float[], Task<string>> transcribe, int inputDeviceCount = 1, bool raisesStoppedWhenStopped = true,
-            Func<string, CancellationToken, Task>? answerTranscriptAsync = null)
+            Func<string, TurnTimeline, CancellationToken, Task>? answerTranscriptAsync = null)
         {
             CursorOverlayManager = new CursorOverlayManager(displayMonitorCatalog, isCursorAlwaysVisible: false);
             // The overlay also reports status when it fades in or out; keep only real voice-state changes (starting from Idle).
@@ -80,7 +80,7 @@ public class PushToTalkDictationTests
     {
         List<string> answeredTranscripts = [];
         using DictationHarness harness = new(_ => Task.FromResult("where is save"),
-            answerTranscriptAsync: (transcript, _) => { answeredTranscripts.Add(transcript); return Task.CompletedTask; });
+            answerTranscriptAsync: (transcript, _, _) => { answeredTranscripts.Add(transcript); return Task.CompletedTask; });
 
         harness.SpeakAndRelease(VoiceTestAudio.Tone(1, 0.3f));
 
@@ -95,7 +95,7 @@ public class PushToTalkDictationTests
     {
         bool wasAnswered = false;
         using DictationHarness harness = new(_ => Task.FromResult(""),
-            answerTranscriptAsync: (_, _) => { wasAnswered = true; return Task.CompletedTask; });
+            answerTranscriptAsync: (_, _, _) => { wasAnswered = true; return Task.CompletedTask; });
 
         harness.SpeakAndRelease(VoiceTestAudio.Tone(1, 0.3f));
 

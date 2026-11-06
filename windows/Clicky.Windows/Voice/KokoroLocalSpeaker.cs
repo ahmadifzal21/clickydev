@@ -14,6 +14,9 @@ internal interface ITextToSpeechSpeaker : IDisposable
     /// <summary>Short human-readable state ("Downloading voice model: 42%"), shown in the panel.</summary>
     event Action<string>? StatusChanged;
 
+    /// <summary>Raised when a <see cref="SpeakAsync"/> call's first audio starts playing (used for turn timing).</summary>
+    event Action? SoundStarted;
+
     /// <summary>True from the start of <see cref="SpeakAsync"/> until the speech ends or is stopped.</summary>
     bool IsSpeaking { get; }
 
@@ -122,6 +125,7 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
         this.loadKokoroInference = loadKokoroInference;
         this.createWavePlayer = createWavePlayer;
         this.fallbackSpeaker = fallbackSpeaker;
+        fallbackSpeaker.SoundStarted += () => SoundStarted?.Invoke();
         this.getRetryDelayAfterFailedAttempts = getRetryDelayAfterFailedAttempts ?? GetDefaultRetryDelay;
     }
 
@@ -137,6 +141,8 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
     };
 
     public event Action<string>? StatusChanged;
+
+    public event Action? SoundStarted;
 
     public bool IsSpeaking => !currentKokoroSpeech.IsCompleted || fallbackSpeaker.IsSpeaking;
 
@@ -235,6 +241,7 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
                 {
                     hasStartedPlaying = true;
                     wavePlayer.Play();
+                    SoundStarted?.Invoke();
                     Console.WriteLine($"Kokoro first sound after {firstSoundStopwatch.ElapsedMilliseconds} ms");
                 }
             }

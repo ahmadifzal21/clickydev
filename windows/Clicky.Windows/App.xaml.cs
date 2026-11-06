@@ -75,8 +75,8 @@ public partial class App : Application
             companionInteractionStateMachine, textToSpeechSpeaker);
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
             companionPanelWindow.SetVoiceNote, Dispatcher, interactionStateMachine: companionInteractionStateMachine,
-            answerTranscriptAsync: (transcript, cancellationToken) =>
-                typedScreenQuestionRunner.AnswerAsync(transcript, callerCancellationToken: cancellationToken));
+            answerTranscriptAsync: (transcript, turnTimeline, cancellationToken) =>
+                typedScreenQuestionRunner.AnswerAsync(transcript, callerCancellationToken: cancellationToken, turnTimeline: turnTimeline));
 
         // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
         PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);

@@ -19,8 +19,11 @@ internal sealed class PushToTalkDictation
     private readonly MicrophoneRecorder microphoneRecorder;
     private readonly CompanionInteractionStateMachine interactionStateMachine;
 
-    /// <summary>Answers a non-empty transcript (capture, backend, speech, pointing); null = dictation only (E6 behaviour).</summary>
-    private readonly Func<string, CancellationToken, Task>? answerTranscriptAsync;
+    /// <summary>
+    /// Answers a non-empty transcript (capture, backend, speech, pointing), adding its stages to the turn's timeline and logging
+    /// it; null = dictation only (E6 behaviour).
+    /// </summary>
+    private readonly Func<string, TurnTimeline, CancellationToken, Task>? answerTranscriptAsync;
 
     /// <summary>Bumped on every press, so a slow transcription from an earlier press can't overwrite a newer state.</summary>
     private int dictationGeneration;
@@ -28,7 +31,7 @@ internal sealed class PushToTalkDictation
     public PushToTalkDictation(CursorOverlayManager cursorOverlayManager, ISpeechToTextTranscriber speechToTextTranscriber,
         Action<string> showVoiceNote, Dispatcher dispatcher, MicrophoneRecorder? microphoneRecorder = null,
         CompanionInteractionStateMachine? interactionStateMachine = null,
-        Func<string, CancellationToken, Task>? answerTranscriptAsync = null)
+        Func<string, TurnTimeline, CancellationToken, Task>? answerTranscriptAsync = null)
     {
         this.answerTranscriptAsync = answerTranscriptAsync;
         this.interactionStateMachine = interactionStateMachine ?? new CompanionInteractionStateMachine(cursorOverlayManager.SetVoiceState);
@@ -81,6 +84,7 @@ internal sealed class PushToTalkDictation
         }
 
         int thisDictationGeneration = dictationGeneration;
+        TurnTimeline turnTimeline = new("release");
         float[] recordedSamples = await microphoneRecorder.StopAsync();
         if (thisDictationGeneration != dictationGeneration)
         {
@@ -110,6 +114,7 @@ internal sealed class PushToTalkDictation
         try
         {
             transcript = await speechToTextTranscriber.TranscribeAsync(recordedSamples, CancellationToken.None);
+            turnTimeline.Mark("transcript");
             Console.WriteLine($"Transcribed {recordedSeconds:0.0} s of audio in {transcriptionStopwatch.ElapsedMilliseconds} ms: \"{transcript}\"");
             voiceNote = transcript.Length == 0 ? "Didn't catch any words." : $"Heard: \"{transcript}\"";
         }
@@ -123,7 +128,7 @@ internal sealed class PushToTalkDictation
         if (transcript.Length > 0 && answerTranscriptAsync is not null)
         {
             showVoiceNote(voiceNote);
-            await answerTranscriptAsync(transcript, CancellationToken.None); // Ends Idle and schedules the transient hide itself.
+            await answerTranscriptAsync(transcript, turnTimeline, CancellationToken.None); // Ends Idle and schedules the transient hide itself.
             return;
         }
 

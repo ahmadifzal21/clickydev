@@ -21,11 +21,13 @@ public class ScreenQuestionAnswerTests
         public Func<CompanionVoiceState>? ReadCurrentState { get; set; }
         public Action? OnSpeak { get; set; }
         public event Action<string>? StatusChanged { add { } remove { } }
+        public event Action? SoundStarted;
         public void Prepare(VoiceSettings voiceSettings) { }
 
         public Task SpeakAsync(string text, CancellationToken cancellationToken)
         {
             SpokenTexts.Add(text);
+            SoundStarted?.Invoke();
             OnSpeak?.Invoke();
             if (ReadCurrentState is not null) StatesWhileSpeaking.Add(ReadCurrentState());
             return Task.CompletedTask;
@@ -89,6 +91,26 @@ public class ScreenQuestionAnswerTests
                 voiceStates);
             Assert.True(cursorOverlayManager.IsPointing);
             Assert.True(cursorOverlayManager.IsShowingResponse);
+        });
+
+    [Fact]
+    public void Turn_AddsItsStagesToTheTimeline_InOrder() =>
+        StaTestThread.Run(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            FakeSpeaker speaker = new();
+            ChatBackendRouter router = new(() => new JobBackendRouting { Answer = ChatBackendKind.ClaudeCodeCli, Fallback = null },
+                [new FakeBackend(_ => Task.FromResult("over there. [POINT:none]"))]);
+            TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, new CompanionConversationHistory(),
+                textToSpeechSpeaker: speaker);
+            TurnTimeline turnTimeline = new("release");
+            turnTimeline.Mark("transcript");
+
+            StaTestThread.WaitFor(runner.AnswerAsync("where is it", turnTimeline: turnTimeline));
+
+            Assert.Matches(@"^Turn timing from release: transcript [\d.]+ s, capture [\d.]+ s, answer [\d.]+ s, first sound [\d.]+ s, done [\d.]+ s$",
+                turnTimeline.Describe());
         });
 
     [Fact]

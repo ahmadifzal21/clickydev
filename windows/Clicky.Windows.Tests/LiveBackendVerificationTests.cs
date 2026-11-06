@@ -115,6 +115,58 @@ public sealed class LiveBackendVerificationTests(ITestOutputHelper output)
         Assert.False(string.IsNullOrWhiteSpace(response.ResponseText));
     }
 
+    /// <summary>
+    /// E10 T10.1 baseline: five typed questions per CLI backend through the real capture, backend and Kokoro (silent output),
+    /// logging each turn's timing line. Run with <c>$env:CLICKY_LIVE_BACKENDS=1; $env:CLICKY_LIVE_TIMING=1</c> and
+    /// <c>--filter "FullyQualifiedName~TurnTiming"</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(ChatBackendKind.ClaudeCodeCli)]
+    [InlineData(ChatBackendKind.CodexCli)]
+    public void TurnTiming_FiveQuestions(ChatBackendKind backendKind)
+    {
+        if (!IsEnabled || Environment.GetEnvironmentVariable("CLICKY_LIVE_TIMING") != "1") return;
+        ChatBackendRouter router = CreateRouter(new JobBackendRouting { Answer = backendKind, Fallback = null });
+        string kokoroModelFilePath = Voice.KokoroLocalSpeaker.EnsureModelDownloadedAsync(_ => { }, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromMinutes(20)).GetAwaiter().GetResult();
+        using Voice.KokoroLocalSpeaker kokoroLocalSpeaker = new((_, _) => Task.FromResult(kokoroModelFilePath), Voice.KokoroInference.Load,
+            () => new KokoroLocalSpeakerTests.FakeWavePlayer(), new KokoroLocalSpeakerTests.RecordingFallbackSpeaker());
+        TaskCompletionSource modelReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        kokoroLocalSpeaker.StatusChanged += status => { if (status == "Voice model ready.") modelReady.TrySetResult(); };
+        kokoroLocalSpeaker.Prepare(new VoiceSettings());
+        modelReady.Task.WaitAsync(TimeSpan.FromMinutes(2)).GetAwaiter().GetResult();
+        string[] questions =
+        [
+            "Point at the orange box that says CLICKY TARGET.",
+            "What does the big orange box on my screen say?",
+            "What colour is the box in the middle of the screen?",
+            "Is there anything I can click in the middle of my screen?",
+            "Where is the Windows Start button?"
+        ];
+
+        RunOnStaThreadWithDispatcher(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            Window targetWindow = ShowTargetWindow();
+            try
+            {
+                foreach (string question in questions)
+                {
+                    TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router,
+                        new CompanionConversationHistory(), textToSpeechSpeaker: kokoroLocalSpeaker);
+                    TurnTimeline turnTimeline = new("question");
+                    string bubbleText = WaitFor(runner.AnswerAsync(question, turnTimeline: turnTimeline));
+                    output.WriteLine($"{backendKind} | {turnTimeline.Describe()} | {bubbleText}");
+                }
+            }
+            finally
+            {
+                targetWindow.Close();
+            }
+        });
+    }
+
     private ChatBackendRouter CreateRouter(JobBackendRouting routing)
     {
         ClickyConfiguration configuration = ClickyConfigurationStore.LoadOrCreateDefault().CurrentConfiguration;

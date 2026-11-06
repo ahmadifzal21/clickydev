@@ -18,6 +18,8 @@ internal sealed class WindowsBuiltInSpeaker : ITextToSpeechSpeaker
 
     public event Action<string>? StatusChanged { add { } remove { } }
 
+    public event Action? SoundStarted;
+
     public bool IsSpeaking => currentWaveOut is not null;
 
     public void Prepare(VoiceSettings voiceSettings)
@@ -49,6 +51,7 @@ internal sealed class WindowsBuiltInSpeaker : ITextToSpeechSpeaker
         try
         {
             waveOut.Play();
+            SoundStarted?.Invoke();
             using (cancellationToken.Register(StopSpeaking))
             {
                 await playbackStopped.Task;

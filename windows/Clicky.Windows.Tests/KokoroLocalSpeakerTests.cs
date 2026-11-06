@@ -13,13 +13,14 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
     private readonly string scratchModelsFolderPath = Path.Combine(Path.GetTempPath(), "ClickyTests", Guid.NewGuid().ToString("N"), "models");
 
     /// <summary>Records what it was asked to say; "speaking" lasts until stopped.</summary>
-    private sealed class RecordingFallbackSpeaker : ITextToSpeechSpeaker
+    internal sealed class RecordingFallbackSpeaker : ITextToSpeechSpeaker
     {
         private TaskCompletionSource? currentSpeech;
         public List<string> SpokenTexts { get; } = [];
         public int StopCount { get; private set; }
         public bool IsDisposed { get; private set; }
         public event Action<string>? StatusChanged { add { } remove { } }
+        public event Action? SoundStarted { add { } remove { } }
         public bool IsSpeaking => currentSpeech is { Task.IsCompleted: false };
         public void Prepare(VoiceSettings voiceSettings) { }
 
@@ -261,7 +262,7 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
     }
 
     /// <summary>Stands in for the sound card: on Play it drains the queued audio as fast as it can until stopped.</summary>
-    private sealed class FakeWavePlayer : IWavePlayer
+    internal sealed class FakeWavePlayer : IWavePlayer
     {
         private IWaveProvider? waveProvider;
         private volatile bool isStopped;
