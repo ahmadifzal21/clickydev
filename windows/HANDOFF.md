@@ -1,34 +1,35 @@
 # Agent handoff — Clicky Windows port
 
-RELAY-STATUS: complete
+RELAY-STATUS: active
 
 <!-- The relay (agent-relay/relay.ps1) stops when the line above reads `RELAY-STATUS: complete`.
      Set it to complete only when every ticket in "Scope" is committed. -->
 
 ## Scope
 
-Epic **E7 — Text-to-speech** (current; see "Current ticket"). Before it: **E6 — Speech-to-text**. Previous: epic **E5 — AI backends + router** (see `PORTING-PLAN.md` step 5 and "Routing"; code goes in `Clicky.Windows/AI/`,
-implementing the existing `ICompanionChatBackend`; settings already exist in `Configuration/ClickyConfiguration.cs`).
-Checkpoint: tray "Ask about my screen (typed)" with a typed question gets an answer from each backend; the cursor points
-when the answer has a [POINT] tag.
-Port from the Mac (read only): `leanring-buddy/ClaudeAPI.swift`, history + POINT handling in `CompanionManager.swift`;
-the Worker's `/chat` contract is in `worker/src/index.ts` (read only). Prompts are in `Companion/CompanionSystemPrompts.cs`,
-tag parsing in `Companion/PointTagParser.cs`, screenshots from `ScreenCapture/`.
+Epic **E8 — Full pipeline and release** (current). Before it: E7 TTS, E6 STT, E5 AI backends (see "Ticket log").
+Checkpoint: hold the hotkey, speak, release: Clicky answers out loud and points at the right thing on the right monitor.
+Port from the Mac (read only): `leanring-buddy/CompanionManager.swift` (state machine, pipeline, transient cursor),
+`OverlayWindow.swift` (fade-out timing). Reuse what exists; don't rebuild it: `Voice/PushToTalkDictation.cs` +
+`WhisperLocalTranscriber.cs` (STT), the Kokoro/Windows-voice speaker in `Voice/`, `Companion/TypedScreenQuestionRunner.cs`
+(capture -> route -> bubble -> PointAt; the voice path should share it, not copy it), `AI/ChatBackendRouter.cs`,
+`Companion/CompanionConversationHistory.cs`, `Overlay/CursorOverlayManager.cs`, `Companion/CompanionVoiceState.cs`.
 
-Tickets: T5.1 ClaudeCodeCliChatBackend (`claude -p`: T5.1.1 images as base64 blocks via `--input-format stream-json`;
-T5.1.2 `--system-prompt`, `--model`, no tools, `--no-session-persistence`; T5.1.3 parse the final result from the output
-stream; T5.1.4 history as prior turns; T5.1.5 timeout/cancel kills the process tree; T5.1.6 clear errors for not
-installed / not logged in) · T5.2 CodexCliChatBackend (`codex exec`: T5.2.1 screenshots to temp files, one `-i` each,
-cleaned up; T5.2.2 system prompt, labels and history folded into the prompt; T5.2.3 `--skip-git-repo-check`, read-only
-sandbox, `--ephemeral`, `-o` last message; T5.2.4 timeout/cancel) · T5.3 CloudflareWorkerChatBackend (existing `/chat`
-route, SSE; empty `WorkerBaseUrl` = clear "not set up" error) · T5.4 ChatBackendRouter: per-job routing + one fallback
-attempt (T5.4.1 unit tests with fake backends) · T5.5 conversation history: last 10 exchanges, POINT tag stripped ·
-T5.6 tray "Ask about my screen (typed)" test box (capture -> route -> show reply in the overlay bubble -> PointAt if tagged)
-· T5.7 measure latency per backend (log timings; write the numbers + a keep-a-process-warm recommendation in the Ticket
-log; don't build warm processes unless clearly needed). T5.8 (verify each backend on the user's machine) is the user's
-job — never mark it.
-Use `--help` of the installed `claude` / `codex` to confirm flags before relying on them. Tests must not call the real
-CLIs or network; put argument building / output parsing in pure, tested helpers.
+Tickets: T8.1 companion state machine (idle/listening/processing/responding, one owner class, pure transition logic
+unit-tested) · T8.2 pipeline: key-down records, key-up transcribes -> captures -> answers (job `answer`) -> speaks the
+reply with the POINT tag stripped -> points if tagged; empty transcript returns to idle; errors shown in the bubble and
+spoken briefly · T8.3 interrupt: a new press cancels the in-flight answer (CancellationToken into the backend, kills the
+CLI process tree) and stops speech, then starts listening · T8.4 transient cursor mode: with "Show Clicky" off, the
+overlay fades in for the interaction and fades out 1 s after the last activity (recording/answer/speech/pointing) ·
+T8.5 log file: everything that goes to the console log also goes to `%LOCALAPPDATA%\Clicky\logs\clicky-<yyyyMMdd>.log`,
+keep the last 7 files · T8.6 "Start with Windows" tray/panel toggle (HKCU `...\CurrentVersion\Run` value pointing at the
+running exe; saved in config; reflects the registry state on start) · T8.7 release single-file publish
+(`dotnet publish -c Release`, check the exe starts and native runtimes for Whisper/Kokoro load from it) and a Windows
+section in the root `README.md` (requirements, publish command, config file location, backends, first-run model
+downloads). T8.7 may touch `README.md` at the repo root (Codex: the relay only commits `windows/` and `AGENTS.md`, so
+note the README change in the commit message and Claude will commit it).
+T8.8 (end-to-end test on the user's machine) and T8.9 (open the PR) are the user's — never mark them, never push.
+Tests must not touch the real mic, speakers, CLIs, registry or network: put logic in pure helpers and test those.
 
 ## Rules for whichever agent is working
 
@@ -46,7 +47,7 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 5. Mid-ticket, if you sense you are running low on context or quota, stop coding, write what is
    half-done under "Current ticket" (files touched, what remains), and exit. Don't commit broken
    builds; leave the work uncommitted and say so.
-6. Tracker: https://claude.ai/artifact/MDLM6aQJTQdjsDWwsPb62X, collection `epics`, doc `E5`.
+6. Tracker: https://claude.ai/artifact/MDLM6aQJTQdjsDWwsPb62X, collection `epics`, doc `E8`.
    Claude: if the ArtifactData tool is available, apply every "Tracker sync pending" entry
    (status `testing` for code-complete tasks/subtasks; pin `if_version`), then clear the list.
    Codex: you can't reach the tracker; just append entries there.
@@ -54,11 +55,7 @@ CLIs or network; put argument building / output parsing in pure, tested helpers.
 
 ## Current ticket
 
-**E7 (text-to-speech) agent work committed: T7.1 (T7.1.1, T7.1.2), T7.2, T7.3 (decided: CPU), T7.5.** T7.4 (ElevenLabs) is
-deliberately not built: only if local speech feels slow or flat after E8. T7.6 (verify voices on the user's machine) is the user's:
-tray "Speak test line" plays with `voice.kokoroVoice`; holding the push-to-talk shortcut (or clicking the item again) cuts it off;
-the console log shows "Kokoro first sound after N ms". Try other voices by editing `kokoroVoice` (e.g. `am_michael`, `bf_emma`).
-The config store migrates the old `"textToSpeech": "edge-tts"` default to `kokoro-local` on load (the user's file is migrated).
+**E8 T8.1** (companion state machine) — not started. E7 is code-complete; T7.6 is the user's machine test.
 
 ## Ticket log (newest last)
 
