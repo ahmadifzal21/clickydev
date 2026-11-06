@@ -7,41 +7,79 @@ namespace Clicky.Windows.AI;
 
 /// <summary>
 /// One ephemeral, read-only <c>codex exec</c> run per request, using the user's existing Codex login. Codex only takes images
-/// as files, so each request gets its own temp folder (screenshots + last-message file) that is deleted afterwards.
+/// as files, so each request gets its own temp folder (screenshots + last-message file) that is deleted afterwards. A
+/// push-to-talk press can prestart the run once its screenshots exist (<see cref="Prestart"/>): Codex spends about 1.5 s
+/// starting up before it reads the prompt from stdin.
 /// </summary>
 internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : ICompanionChatBackend
 {
+    private readonly PrestartedCliProcessSlot prestartedProcess = new();
+
     public ChatBackendKind BackendKind => ChatBackendKind.CodexCli;
     public string DisplayName => "Codex CLI";
+
+    /// <summary>What a prestarted run was started with; it suits a request with these exact screenshots (same byte arrays).</summary>
+    private sealed record PrestartKey(IReadOnlyList<byte[]> ScreenshotBytes, string ExecutablePath, string? Model)
+    {
+        public bool Suits(IReadOnlyList<LabeledScreenshotImage> screenshots, CodexCliBackendSettings currentSettings) =>
+            ExecutablePath == currentSettings.ExecutablePath && Model == currentSettings.Model &&
+            ScreenshotBytes.Count == screenshots.Count &&
+            ScreenshotBytes.Zip(screenshots, (bytes, screenshot) => ReferenceEquals(bytes, screenshot.JpegImageBytes)).All(isSame => isSame);
+    }
+
+    public void Prestart(string systemPrompt, IReadOnlyList<LabeledScreenshotImage> screenshots)
+    {
+        string requestDirectory = NewRequestDirectory();
+        try
+        {
+            List<string> screenshotFilePaths = WriteScreenshots(requestDirectory, screenshots);
+            CliChatProcess chatProcess = CliChatProcess.Start(CodexCliProtocol.BuildStartInfo(
+                settings, screenshotFilePaths, LastMessageFilePath(requestDirectory), requestDirectory));
+            prestartedProcess.Put(new PrestartedCliProcess(chatProcess,
+                new PrestartKey(screenshots.Select(screenshot => screenshot.JpegImageBytes).ToArray(), settings.ExecutablePath, settings.Model),
+                requestDirectory, () => _ = DeleteRequestDirectoryAsync(requestDirectory)));
+        }
+        catch (Exception exception)
+        {
+            // The request will start its own run (and report a missing executable properly).
+            Trace.TraceWarning($"Couldn't prestart Codex: {exception.Message}");
+            _ = DeleteRequestDirectoryAsync(requestDirectory);
+        }
+    }
+
+    public void DiscardPrestarted() => prestartedProcess.Discard();
 
     public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
         Action<string>? onTextDelta = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        string requestDirectory = Path.Combine(Path.GetTempPath(), "clicky-codex-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(requestDirectory);
+        using PrestartedCliProcess? prestarted = prestartedProcess.Take(matchKey =>
+            matchKey is PrestartKey prestartKey && prestartKey.Suits(companionChatRequest.LabeledScreenshotImages, settings));
+        string requestDirectory = prestarted?.WorkPath ?? NewRequestDirectory();
+        // shortcut: a second agent message would be spoken too, though only the last is the answer; tools are off, so Codex sends
+        // one. Upgrade if multi-message replies show up in the logs.
+        Action<string>? onOutputLine = onTextDelta is null ? null : outputLine =>
+        {
+            if (CodexCliProtocol.TryGetAgentMessageText(outputLine) is { Length: > 0 } messageText) onTextDelta(messageText);
+        };
         try
         {
-            var screenshotFilePaths = new List<string>();
-            for (int index = 0; index < companionChatRequest.LabeledScreenshotImages.Count; index++)
+            string prompt = CodexCliProtocol.BuildPrompt(companionChatRequest);
+            TimeSpan responseTimeout = TimeSpan.FromSeconds(settings.ResponseTimeoutSeconds);
+            string lastMessageFilePath = LastMessageFilePath(requestDirectory);
+            (string StandardOutput, string StandardError, int ExitCode) result;
+            if (prestarted is not null)
             {
-                string screenshotFilePath = Path.Combine(requestDirectory, $"screen-{index + 1}.jpg");
-                await File.WriteAllBytesAsync(screenshotFilePath, companionChatRequest.LabeledScreenshotImages[index].JpegImageBytes, cancellationToken)
-                    .ConfigureAwait(false);
-                screenshotFilePaths.Add(screenshotFilePath);
+                result = await prestarted.Process.SendAsync(prompt, responseTimeout, cancellationToken, onOutputLine).ConfigureAwait(false);
             }
-            string lastMessageFilePath = Path.Combine(requestDirectory, "last-message.txt");
-
-            var result = await CliChatProcess.RunAsync(
-                CodexCliProtocol.BuildStartInfo(settings, screenshotFilePaths, lastMessageFilePath, requestDirectory),
-                CodexCliProtocol.BuildPrompt(companionChatRequest),
-                TimeSpan.FromSeconds(settings.ResponseTimeoutSeconds), cancellationToken,
-                // shortcut: a second agent message would be spoken too, though only the last is the answer; tools are off, so
-                // Codex sends one. Upgrade if multi-message replies show up in the logs.
-                onTextDelta is null ? null : outputLine =>
-                {
-                    if (CodexCliProtocol.TryGetAgentMessageText(outputLine) is { Length: > 0 } messageText) onTextDelta(messageText);
-                }).ConfigureAwait(false);
+            else
+            {
+                List<string> screenshotFilePaths = await Task.Run(() => WriteScreenshots(requestDirectory, companionChatRequest.LabeledScreenshotImages),
+                    cancellationToken).ConfigureAwait(false);
+                result = await CliChatProcess.RunAsync(
+                    CodexCliProtocol.BuildStartInfo(settings, screenshotFilePaths, lastMessageFilePath, requestDirectory),
+                    prompt, responseTimeout, cancellationToken, onOutputLine).ConfigureAwait(false);
+            }
             string? lastMessageText = File.Exists(lastMessageFilePath)
                 ? await File.ReadAllTextAsync(lastMessageFilePath, CancellationToken.None).ConfigureAwait(false)
                 : null;
@@ -58,18 +96,46 @@ internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : IC
         }
         finally
         {
-            // CliChatProcess waits for Codex itself, but after a cancel the rest of the killed tree can hold this folder
-            // (its working directory) for a moment longer, so retry briefly.
-            for (int attempt = 1; ; attempt++)
+            if (prestarted is null) await DeleteRequestDirectoryAsync(requestDirectory).ConfigureAwait(false); // A prestarted run cleans up on dispose.
+        }
+    }
+
+    private static string NewRequestDirectory()
+    {
+        string requestDirectory = Path.Combine(Path.GetTempPath(), "clicky-codex-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(requestDirectory);
+        return requestDirectory;
+    }
+
+    private static string LastMessageFilePath(string requestDirectory) => Path.Combine(requestDirectory, "last-message.txt");
+
+    private static List<string> WriteScreenshots(string requestDirectory, IReadOnlyList<LabeledScreenshotImage> screenshots)
+    {
+        var screenshotFilePaths = new List<string>();
+        for (int index = 0; index < screenshots.Count; index++)
+        {
+            string screenshotFilePath = Path.Combine(requestDirectory, $"screen-{index + 1}.jpg");
+            File.WriteAllBytes(screenshotFilePath, screenshots[index].JpegImageBytes);
+            screenshotFilePaths.Add(screenshotFilePath);
+        }
+        return screenshotFilePaths;
+    }
+
+    /// <summary>
+    /// CliChatProcess waits for Codex itself, but after a cancel the rest of the killed tree can hold this folder (its working
+    /// directory) for a moment longer, so retry briefly.
+    /// </summary>
+    private static async Task DeleteRequestDirectoryAsync(string requestDirectory)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try { Directory.Delete(requestDirectory, recursive: true); break; }
+            catch (DirectoryNotFoundException) { break; }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                try { Directory.Delete(requestDirectory, recursive: true); break; }
-                catch (DirectoryNotFoundException) { break; }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-                {
-                    if (attempt < 10) { await Task.Delay(200, CancellationToken.None).ConfigureAwait(false); continue; }
-                    Trace.TraceWarning($"Could not delete Codex temp folder '{requestDirectory}': {exception.Message}");
-                    break;
-                }
+                if (attempt < 10) { await Task.Delay(200, CancellationToken.None).ConfigureAwait(false); continue; }
+                Trace.TraceWarning($"Could not delete Codex temp folder '{requestDirectory}': {exception.Message}");
+                break;
             }
         }
     }

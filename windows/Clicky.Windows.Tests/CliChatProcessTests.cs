@@ -168,6 +168,74 @@ public class CliChatProcessTests
         }
     }
 
+    [Fact]
+    public async Task StartedProcess_TakesItsRequestLater_AndStreamsTheLinesAfterIt()
+    {
+        var startInfo = CreatePowerShellStartInfo("""
+            [Console]::Out.WriteLine('ready')
+            $request = [Console]::In.ReadToEnd()
+            [Console]::Out.WriteLine("got $request")
+            """);
+        using CliChatProcess chatProcess = CliChatProcess.Start(startInfo);
+        await Task.Delay(1500); // The user is still talking.
+        List<string> streamedLines = [];
+
+        var result = await chatProcess.SendAsync("question", TimeSpan.FromSeconds(15), CancellationToken.None, streamedLines.Add);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("ready\ngot question\n", result.StandardOutput);
+        Assert.Contains("got question", streamedLines);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chatProcess.SendAsync("again", TimeSpan.FromSeconds(5), CancellationToken.None));
+    }
+
+    [Fact]
+    public void UnusedStartedProcess_IsKilledOnDispose()
+    {
+        CliChatProcess chatProcess = CliChatProcess.Start(CreatePowerShellStartInfo("Start-Sleep -Seconds 60"));
+        Assert.False(chatProcess.HasExited);
+
+        var stopwatch = Stopwatch.StartNew();
+        chatProcess.Dispose();
+
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task PrestartSlot_HandsOutAMatchingProcess_AndKillsMismatchedReplacedAndIdleOnes()
+    {
+        static (PrestartedCliProcess Prestarted, List<string> CleanedUp) Prestart(string key)
+        {
+            List<string> cleanedUp = [];
+            return (new PrestartedCliProcess(CliChatProcess.Start(CreatePowerShellStartInfo("Start-Sleep -Seconds 60")), key, key,
+                () => cleanedUp.Add(key)), cleanedUp);
+        }
+
+        using PrestartedCliProcessSlot slot = new(idleTimeout: TimeSpan.FromSeconds(2));
+        var (first, firstCleanedUp) = Prestart("voice prompt");
+        slot.Put(first);
+        using (PrestartedCliProcess? taken = slot.Take(key => key.Equals("voice prompt")))
+        {
+            Assert.Same(first, taken);
+            Assert.Empty(firstCleanedUp); // Taken, not killed: the request uses it.
+        }
+        Assert.Equal(["voice prompt"], firstCleanedUp);
+
+        var (mismatched, mismatchedCleanedUp) = Prestart("voice prompt");
+        slot.Put(mismatched);
+        Assert.Null(slot.Take(key => key.Equals("pointing prompt")));
+        Assert.Equal(["voice prompt"], mismatchedCleanedUp);
+
+        var (replaced, replacedCleanedUp) = Prestart("old press");
+        slot.Put(replaced);
+        var (newer, newerCleanedUp) = Prestart("new press");
+        slot.Put(newer);
+        Assert.Equal(["old press"], replacedCleanedUp);
+
+        await Task.Delay(TimeSpan.FromSeconds(4)); // Nobody asked: the idle timeout kills it.
+        Assert.Equal(["new press"], newerCleanedUp);
+        Assert.Null(slot.Take(_ => true));
+    }
+
     private static Process? FindProcess(int processId)
     {
         try { return Process.GetProcessById(processId); }

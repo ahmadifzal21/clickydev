@@ -4,20 +4,64 @@ using System.IO;
 
 namespace Clicky.Windows.AI;
 
-internal static class CliChatProcess
+/// <summary>
+/// One CLI child process for one request. <see cref="RunAsync"/> starts it and sends the request at once; a push-to-talk turn
+/// can instead <see cref="Start"/> it at the key press (its start-up then overlaps the user's speech) and
+/// <see cref="SendAsync"/> the request after the release. Dispose kills it (whole tree) if it is still running.
+/// </summary>
+internal sealed class CliChatProcess : IDisposable
 {
+    private readonly Process process;
+    private readonly CancellationTokenSource readerCancellation = new();
+    private readonly Task<string> standardOutput;
+    private readonly Task<string> standardError;
+    private volatile Action<string>? onStandardOutputLine;
+    private int isSent;
+
+    private CliChatProcess(ProcessStartInfo startInfo, bool readsOutputByLine)
+    {
+        startInfo.FileName = ResolveExecutablePath(startInfo.FileName, Environment.GetEnvironmentVariable("PATH"));
+        process = new Process { StartInfo = startInfo };
+        process.Start();
+        standardOutput = readsOutputByLine
+            ? ReadAllLinesAsync(process.StandardOutput, line => onStandardOutputLine?.Invoke(line), readerCancellation.Token)
+            : process.StandardOutput.ReadToEndAsync(readerCancellation.Token);
+        standardError = process.StandardError.ReadToEndAsync(readerCancellation.Token);
+    }
+
+    /// <summary>
+    /// Starts the process; it waits for its request on stdin. Output is read line by line from the start, so the callback given
+    /// to <see cref="SendAsync"/> sees every line after the request.
+    /// </summary>
+    public static CliChatProcess Start(ProcessStartInfo startInfo) => new(startInfo, readsOutputByLine: true);
+
+    public bool HasExited => process.HasExited;
+
     public static async Task<(string StandardOutput, string StandardError, int ExitCode)> RunAsync(
         ProcessStartInfo startInfo, string standardInput, TimeSpan responseTimeout, CancellationToken cancellationToken,
         Action<string>? onStandardOutputLine = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (responseTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(responseTimeout), "Response timeout must be positive.");
+        using CliChatProcess chatProcess = new(startInfo, readsOutputByLine: onStandardOutputLine is not null);
+        return await chatProcess.SendAsync(standardInput, responseTimeout, cancellationToken, onStandardOutputLine).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Writes the request to stdin and waits for the process to exit. The timeout counts from here. Throws
+    /// <see cref="TimeoutException"/> on timeout and <see cref="OperationCanceledException"/> on cancel (both kill the process).
+    /// One request per process.
+    /// </summary>
+    public async Task<(string StandardOutput, string StandardError, int ExitCode)> SendAsync(
+        string standardInput, TimeSpan responseTimeout, CancellationToken cancellationToken, Action<string>? onStandardOutputLine = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (responseTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(responseTimeout), "Response timeout must be positive.");
+        if (Interlocked.Exchange(ref isSent, 1) != 0) throw new InvalidOperationException("This chat process already has its request.");
+        this.onStandardOutputLine = onStandardOutputLine;
         using var timeout = new CancellationTokenSource(responseTimeout);
         using var combinedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         CancellationToken processCancellationToken = combinedCancellation.Token;
-        startInfo.FileName = ResolveExecutablePath(startInfo.FileName, Environment.GetEnvironmentVariable("PATH"));
-        using var process = new Process { StartInfo = startInfo };
-        process.Start();
 
         // Killing also unblocks a full stdin pipe when the child stops reading; cancelling a pipe write alone may not.
         using CancellationTokenRegistration cancellationRegistration = processCancellationToken.Register(() =>
@@ -27,9 +71,8 @@ internal static class CliChatProcess
             {
                 Trace.TraceWarning($"Could not stop chat process: {exception.Message}");
             }
+            readerCancellation.Cancel();
         });
-        Task<string> standardOutput = ReadAllLinesAsync(process.StandardOutput, onStandardOutputLine, processCancellationToken);
-        Task<string> standardError = process.StandardError.ReadToEndAsync(processCancellationToken);
         try
         {
             IOException? inputException = null;
@@ -58,18 +101,43 @@ internal static class CliChatProcess
         }
         finally
         {
-            KillIfRunning(process);
-            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-            // Observe cancelled readers before disposing their streams; their failure has already been surfaced above.
-            try { await Task.WhenAll(standardOutput, standardError).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (processCancellationToken.IsCancellationRequested) { }
+            await StopAsync().ConfigureAwait(false);
         }
     }
 
-    /// <summary>Reads stdout to the end, handing each line to <paramref name="onLine"/> as soon as it arrives (streamed replies).</summary>
-    private static async Task<string> ReadAllLinesAsync(StreamReader reader, Action<string>? onLine, CancellationToken cancellationToken)
+    /// <summary>Kills the process (if running), waits for it, and observes the readers so nothing is left unobserved.</summary>
+    private async Task StopAsync()
     {
-        if (onLine is null) return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        try { KillIfRunning(process); }
+        catch (Exception exception) when (exception is Win32Exception or AggregateException)
+        {
+            Trace.TraceWarning($"Could not stop chat process: {exception.Message}");
+        }
+        await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+        // Observe cancelled readers before disposing their streams; their failure has already been surfaced by SendAsync.
+        try { await Task.WhenAll(standardOutput, standardError).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (readerCancellation.IsCancellationRequested) { }
+    }
+
+    /// <summary>Kills an unused (or finished) process, e.g. one prestarted for a question that was never asked.</summary>
+    public void Dispose()
+    {
+        readerCancellation.Cancel();
+        try
+        {
+            StopAsync().Wait(TimeSpan.FromSeconds(5));
+        }
+        catch (AggregateException exception)
+        {
+            Trace.TraceWarning($"Could not stop chat process cleanly: {exception.InnerException?.Message}");
+        }
+        process.Dispose();
+        readerCancellation.Dispose();
+    }
+
+    /// <summary>Reads stdout to the end, handing each line to <paramref name="onLine"/> as soon as it arrives (streamed replies).</summary>
+    private static async Task<string> ReadAllLinesAsync(StreamReader reader, Action<string> onLine, CancellationToken cancellationToken)
+    {
         var allText = new System.Text.StringBuilder();
         while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
         {

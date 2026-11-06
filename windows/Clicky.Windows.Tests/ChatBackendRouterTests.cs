@@ -140,6 +140,19 @@ public class ChatBackendRouterTests
         Assert.Equal(["from the fallback"], deltas);
     }
 
+    [Fact]
+    public void Prestart_GoesToTheBackendTheJobIsRoutedTo_AndDiscardReachesEveryBackend()
+    {
+        var backends = AllBackends();
+        var router = new ChatBackendRouter(() => new JobBackendRouting { Answer = ChatBackendKind.CodexCli }, backends);
+
+        router.Prestart(CompanionJobKind.Answer, "system", []);
+        router.DiscardPrestarted();
+
+        Assert.Equal([ChatBackendKind.CodexCli], backends.Where(backend => backend.PrestartCount > 0).Select(backend => backend.BackendKind));
+        Assert.All(backends, backend => Assert.Equal(1, backend.DiscardCount));
+    }
+
     private static FakeChatBackend[] AllBackends(params ChatBackendKind[] failing) =>
         Enum.GetValues<ChatBackendKind>().Select(kind => new FakeChatBackend(kind)
         {
@@ -151,6 +164,10 @@ public class ChatBackendRouterTests
         public int CallCount { get; private set; }
         public Action? OnCall { get; set; }
         public Action<Action<string>?>? OnCallWithDelta { get; set; }
+        public int PrestartCount { get; private set; }
+        public int DiscardCount { get; private set; }
+        public void Prestart(string systemPrompt, IReadOnlyList<LabeledScreenshotImage> screenshots) => PrestartCount++;
+        public void DiscardPrestarted() => DiscardCount++;
         public ChatBackendKind BackendKind => backendKind;
         public string DisplayName => $"{backendKind} display";
 

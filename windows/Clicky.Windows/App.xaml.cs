@@ -36,6 +36,7 @@ public partial class App : Application
     private PushToTalkDictation? pushToTalkDictation;
     private ITextToSpeechSpeaker? textToSpeechSpeaker;
     private readonly CancellationTokenSource appExitCancellation = new();
+    private TypedScreenQuestionRunner? typedScreenQuestionRunner;
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -80,7 +81,9 @@ public partial class App : Application
             answerTranscriptAsync: (transcript, turnId, cancellationToken) =>
                 typedScreenQuestionRunner.AnswerAsync(transcript, callerCancellationToken: cancellationToken, turnId: turnId,
                     screenCapturesTask: typedScreenQuestionRunner.TakeCaptureFromPress()),
-            turnEventLog: typedScreenQuestionRunner.TurnEventLog);
+            turnEventLog: typedScreenQuestionRunner.TurnEventLog,
+            onReleaseWithoutQuestion: typedScreenQuestionRunner.DiscardPrestartedAnswer);
+        this.typedScreenQuestionRunner = typedScreenQuestionRunner;
 
         // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
         PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
@@ -217,6 +220,7 @@ public partial class App : Application
         }
 
         pushToTalkKeyboardHook?.Dispose();
+        typedScreenQuestionRunner?.DiscardPrestartedAnswer(); // Its CLI process would outlive Clicky otherwise.
         speechToTextTranscriber?.Dispose();
         textToSpeechSpeaker?.Dispose();
 

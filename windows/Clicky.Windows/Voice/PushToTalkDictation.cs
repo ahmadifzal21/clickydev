@@ -28,14 +28,19 @@ internal sealed class PushToTalkDictation
     /// <summary>Each release starts a turn here (its clock starts at the release); the transcript is its first stage.</summary>
     private readonly CompanionTurnEventLog turnEventLog;
 
+    /// <summary>Called when a release ends without a question to answer (a tap, silence, an empty transcript).</summary>
+    private readonly Action? onReleaseWithoutQuestion;
+
     /// <summary>Bumped on every press, so a slow transcription from an earlier press can't overwrite a newer state.</summary>
     private int dictationGeneration;
 
     public PushToTalkDictation(CursorOverlayManager cursorOverlayManager, ISpeechToTextTranscriber speechToTextTranscriber,
         Action<string> showVoiceNote, Dispatcher dispatcher, MicrophoneRecorder? microphoneRecorder = null,
         CompanionInteractionStateMachine? interactionStateMachine = null,
-        Func<string, int, CancellationToken, Task>? answerTranscriptAsync = null, CompanionTurnEventLog? turnEventLog = null)
+        Func<string, int, CancellationToken, Task>? answerTranscriptAsync = null, CompanionTurnEventLog? turnEventLog = null,
+        Action? onReleaseWithoutQuestion = null)
     {
+        this.onReleaseWithoutQuestion = onReleaseWithoutQuestion;
         this.turnEventLog = turnEventLog ?? new CompanionTurnEventLog();
         this.answerTranscriptAsync = answerTranscriptAsync;
         this.interactionStateMachine = interactionStateMachine ?? new CompanionInteractionStateMachine(cursorOverlayManager.SetVoiceState);
@@ -144,7 +149,11 @@ internal sealed class PushToTalkDictation
         }
         finally
         {
-            if (!isAnswering) turnEventLog.Append(turnId, CompanionTurnEventKind.TurnEnded);
+            if (!isAnswering)
+            {
+                turnEventLog.Append(turnId, CompanionTurnEventKind.TurnEnded);
+                if (thisDictationGeneration == dictationGeneration) onReleaseWithoutQuestion?.Invoke(); // A newer press owns its own.
+            }
         }
     }
 

@@ -50,6 +50,18 @@ internal sealed class ChatBackendRouter(Func<JobBackendRouting> getCurrentRoutin
         }
     }
 
+    /// <summary>Prestarts the request on the backend the job is routed to now (see <see cref="ICompanionChatBackend.Prestart"/>).</summary>
+    public void Prestart(CompanionJobKind companionJobKind, string systemPrompt, IReadOnlyList<LabeledScreenshotImage> screenshots)
+    {
+        if (chatBackendsByKind.TryGetValue(getCurrentRouting().GetBackendForJob(companionJobKind), out ICompanionChatBackend? chatBackend))
+            chatBackend.Prestart(systemPrompt, screenshots);
+    }
+
+    public void DiscardPrestarted()
+    {
+        foreach (ICompanionChatBackend chatBackend in chatBackendsByKind.Values) chatBackend.DiscardPrestarted();
+    }
+
     private async Task<RoutedChatResponse> GetResponseFromAsync(
         ChatBackendKind chatBackendKind, CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
         Action<string>? onTextDelta)

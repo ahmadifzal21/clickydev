@@ -43,10 +43,26 @@ internal sealed class TypedScreenQuestionRunner(
     /// </summary>
     public void CaptureOnPress()
     {
-        captureFromPress = CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, CancellationToken.None);
+        captureFromPress = CaptureThenPrestartAnswerAsync(
+            CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, CancellationToken.None));
         // A failure surfaces in the turn that uses it; one that is never used must not go unobserved.
         captureFromPress.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
     }
+
+    /// <summary>
+    /// Once the press's screenshots exist, starts the answer's CLI process too (E10 T10.6), so its start-up (about 1 s for Claude
+    /// Code, 1.5 s for Codex) happens while the user is still talking. The turn awaits this task, so the process is ready first.
+    /// </summary>
+    private async Task<IReadOnlyList<CompanionScreenCapture>> CaptureThenPrestartAnswerAsync(Task<IReadOnlyList<CompanionScreenCapture>> capture)
+    {
+        IReadOnlyList<CompanionScreenCapture> screenCaptures = await capture.ConfigureAwait(false);
+        chatBackendRouter.Prestart(CompanionJobKind.Answer, CompanionSystemPrompts.CompanionVoiceResponseSystemPrompt,
+            CompanionScreenQuestion.LabelScreenshots(screenCaptures));
+        return screenCaptures;
+    }
+
+    /// <summary>The press led to no question (a tap, an empty transcript) or Clicky is quitting: kill the prestarted process.</summary>
+    public void DiscardPrestartedAnswer() => chatBackendRouter.DiscardPrestarted();
 
     /// <summary>The press's capture for the voice turn that follows it (null if there was none); each capture is used once.</summary>
     public Task<IReadOnlyList<CompanionScreenCapture>>? TakeCaptureFromPress()

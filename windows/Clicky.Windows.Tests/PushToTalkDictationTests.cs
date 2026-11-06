@@ -25,6 +25,7 @@ public class PushToTalkDictationTests
         public DictationHarness(Func<float[], Task<string>> transcribe, int inputDeviceCount = 1, bool raisesStoppedWhenStopped = true,
             Func<string, int, CancellationToken, Task>? answerTranscriptAsync = null)
         {
+            CompanionTurnEventLog turnEventLog = new();
             CursorOverlayManager = new CursorOverlayManager(displayMonitorCatalog, isCursorAlwaysVisible: false);
             // The overlay also reports status when it fades in or out; keep only real voice-state changes (starting from Idle).
             CursorOverlayManager.CompanionStatusChanged += (_, voiceState) =>
@@ -38,8 +39,12 @@ public class PushToTalkDictationTests
                 return fakeWaveIn;
             }, () => inputDeviceCount);
             PushToTalkDictation = new PushToTalkDictation(CursorOverlayManager, new FakeSpeechToTextTranscriber(transcribe),
-                VoiceNotes.Add, Dispatcher.CurrentDispatcher, microphoneRecorder, answerTranscriptAsync: answerTranscriptAsync);
+                VoiceNotes.Add, Dispatcher.CurrentDispatcher, microphoneRecorder, answerTranscriptAsync: answerTranscriptAsync,
+                turnEventLog: turnEventLog, onReleaseWithoutQuestion: () => ReleasesWithoutQuestion++);
         }
+
+        /// <summary>How often the press's prestarted answer would have been thrown away.</summary>
+        public int ReleasesWithoutQuestion { get; private set; }
 
         public void Press() => StaTestThread.WaitFor(PushToTalkDictation.HandleShortcutTransition(PushToTalkShortcutTransition.Pressed));
 
@@ -88,6 +93,7 @@ public class PushToTalkDictationTests
         Assert.Equal(["Heard: \"where is save\""], harness.VoiceNotes);
         // The answer step (faked here) moves on from Processing; dictation doesn't end the turn itself.
         Assert.Equal([CompanionVoiceState.Listening, CompanionVoiceState.Processing], harness.VoiceStates);
+        Assert.Equal(0, harness.ReleasesWithoutQuestion); // The question uses the prestarted answer.
     });
 
     [Fact]
@@ -136,6 +142,7 @@ public class PushToTalkDictationTests
         Assert.False(wasTranscribed);
         Assert.Empty(harness.VoiceNotes);
         Assert.Equal([CompanionVoiceState.Listening, CompanionVoiceState.Idle], harness.VoiceStates);
+        Assert.Equal(1, harness.ReleasesWithoutQuestion);
     });
 
     [Fact]

@@ -44,4 +44,18 @@ public interface ICompanionChatBackend
     /// </param>
     Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
         Action<string>? onTextDelta = null);
+
+    /// <summary>
+    /// Starts the slow part of a coming request now (a CLI process, at the push-to-talk press), so it overlaps the user's speech.
+    /// The next request with this system prompt and these screenshots uses it; a later prestart replaces it. Never throws.
+    /// Backends with nothing to start (HTTP) keep this no-op.
+    /// </summary>
+    void Prestart(string systemPrompt, IReadOnlyList<LabeledScreenshotImage> screenshots)
+    {
+    }
+
+    /// <summary>Kills a prestarted process nobody will use (a tap, an empty transcript, Clicky quitting).</summary>
+    void DiscardPrestarted()
+    {
+    }
 }

@@ -121,9 +121,11 @@ public sealed class LiveBackendVerificationTests(ITestOutputHelper output)
     /// <c>--filter "FullyQualifiedName~TurnTiming"</c>.
     /// </summary>
     [Theory]
-    [InlineData(ChatBackendKind.ClaudeCodeCli)]
-    [InlineData(ChatBackendKind.CodexCli)]
-    public void TurnTiming_FiveQuestions(ChatBackendKind backendKind)
+    [InlineData(ChatBackendKind.ClaudeCodeCli, false)]
+    [InlineData(ChatBackendKind.CodexCli, false)]
+    [InlineData(ChatBackendKind.ClaudeCodeCli, true)]
+    [InlineData(ChatBackendKind.CodexCli, true)]
+    public void TurnTiming_FiveQuestions(ChatBackendKind backendKind, bool asksLikePushToTalk)
     {
         if (!IsEnabled || Environment.GetEnvironmentVariable("CLICKY_LIVE_TIMING") != "1") return;
         ChatBackendRouter router = CreateRouter(new JobBackendRouting { Answer = backendKind, Fallback = null });
@@ -155,7 +157,19 @@ public sealed class LiveBackendVerificationTests(ITestOutputHelper output)
                 {
                     TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router,
                         new CompanionConversationHistory(), textToSpeechSpeaker: kokoroLocalSpeaker);
-                    string bubbleText = WaitFor(runner.AnswerAsync(question));
+                    string bubbleText;
+                    if (asksLikePushToTalk)
+                    {
+                        // Like a press: capture and prestart the CLI, "talk" for two seconds, then the turn starts at the release.
+                        runner.CaptureOnPress();
+                        PumpFor(TimeSpan.FromSeconds(2));
+                        bubbleText = WaitFor(runner.AnswerAsync(question, turnId: runner.TurnEventLog.StartTurn("release"),
+                            screenCapturesTask: runner.TakeCaptureFromPress()));
+                    }
+                    else
+                    {
+                        bubbleText = WaitFor(runner.AnswerAsync(question));
+                    }
                     output.WriteLine($"{backendKind} | {CompanionTurnTiming.Describe(runner.TurnEventLog.ReadAfter(0))} | {bubbleText}");
                 }
             }
@@ -205,6 +219,17 @@ public sealed class LiveBackendVerificationTests(ITestOutputHelper output)
     }
 
     private string? lastRawResponse;
+
+    private static void PumpFor(TimeSpan duration)
+    {
+        DispatcherFrame frame = new();
+        new DispatcherTimer(duration, DispatcherPriority.Normal, (sender, _) =>
+        {
+            ((DispatcherTimer)sender!).Stop();
+            frame.Continue = false;
+        }, Dispatcher.CurrentDispatcher).Start();
+        Dispatcher.PushFrame(frame);
+    }
 
     /// <summary>Pumps the dispatcher (the runner awaits on it, like in the app) until <paramref name="task"/> ends.</summary>
     private static T WaitFor<T>(Task<T> task)

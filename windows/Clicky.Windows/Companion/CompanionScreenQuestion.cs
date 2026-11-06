@@ -14,11 +14,12 @@ internal static class CompanionScreenQuestion
     /// <summary>Labels get the screenshot size appended, as on the Mac, so the model answers in that pixel space.</summary>
     public static CompanionChatRequest BuildChatRequest(
         string userQuestion, IReadOnlyList<CompanionScreenCapture> screenCaptures, IReadOnlyList<ConversationExchange> conversationHistory) =>
-        new(CompanionSystemPrompts.CompanionVoiceResponseSystemPrompt,
-            screenCaptures.Select(capture => new LabeledScreenshotImage(capture.JpegImageBytes,
-                $"{capture.Label} (image dimensions: {capture.ScreenshotWidthPixels}x{capture.ScreenshotHeightPixels} pixels)")).ToArray(),
-            conversationHistory,
-            userQuestion);
+        new(CompanionSystemPrompts.CompanionVoiceResponseSystemPrompt, LabelScreenshots(screenCaptures), conversationHistory, userQuestion);
+
+    /// <summary>The captures as the backend receives them; the same JPEG byte arrays, so a prestarted request can be matched.</summary>
+    public static LabeledScreenshotImage[] LabelScreenshots(IReadOnlyList<CompanionScreenCapture> screenCaptures) =>
+        screenCaptures.Select(capture => new LabeledScreenshotImage(capture.JpegImageBytes,
+            $"{capture.Label} (image dimensions: {capture.ScreenshotWidthPixels}x{capture.ScreenshotHeightPixels} pixels)")).ToArray();
 
     /// <summary>
     /// Physical virtual-screen pixel to point at, or null for [POINT:none] / no tag. ":screenN" picks that capture (1-based, in
