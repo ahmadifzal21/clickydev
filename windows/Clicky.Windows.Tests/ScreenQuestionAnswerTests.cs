@@ -19,12 +19,14 @@ public class ScreenQuestionAnswerTests
         public List<string> SpokenTexts { get; } = [];
         public List<CompanionVoiceState> StatesWhileSpeaking { get; } = [];
         public Func<CompanionVoiceState>? ReadCurrentState { get; set; }
+        public Action? OnSpeak { get; set; }
         public event Action<string>? StatusChanged { add { } remove { } }
         public void Prepare(VoiceSettings voiceSettings) { }
 
         public Task SpeakAsync(string text, CancellationToken cancellationToken)
         {
             SpokenTexts.Add(text);
+            OnSpeak?.Invoke();
             if (ReadCurrentState is not null) StatesWhileSpeaking.Add(ReadCurrentState());
             return Task.CompletedTask;
         }
@@ -132,4 +134,39 @@ public class ScreenQuestionAnswerTests
                 Assert.False(cursorOverlayManager.IsShowingResponse);
             });
     }
+
+    [Fact]
+    public void TransientMode_StaysUpThroughLongSpeech_ThenFadesOutAfterTheLastActivity() => StaTestThread.Run(() =>
+    {
+        using DisplayMonitorCatalog displayMonitorCatalog = new();
+        using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+        CompanionInteractionStateMachine stateMachine = new(cursorOverlayManager.SetVoiceState);
+        List<bool> visibleWhileSpeaking = [];
+        FakeSpeaker speaker = new()
+        {
+            OnSpeak = () =>
+            {
+                // 20 s of speech, well past the bubble's 6 s hold and the 1 s pause.
+                for (int frame = 0; frame < 40; frame++)
+                {
+                    cursorOverlayManager.AdvanceFrame(0, 0, 0.5);
+                    visibleWhileSpeaking.Add(cursorOverlayManager.IsOverlayVisible);
+                }
+            }
+        };
+        ChatBackendRouter router = new(() => new JobBackendRouting { Answer = ChatBackendKind.ClaudeCodeCli, Fallback = null },
+            [new FakeBackend(_ => Task.FromResult("a long answer. [POINT:none]"))]);
+        TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, new CompanionConversationHistory(),
+            stateMachine, speaker);
+
+        Assert.False(cursorOverlayManager.IsOverlayVisible);
+        StaTestThread.WaitFor(runner.AnswerAsync("explain this"));
+
+        Assert.Equal(40, visibleWhileSpeaking.Count);
+        Assert.All(visibleWhileSpeaking, Assert.True);
+        cursorOverlayManager.AdvanceFrame(0, 0, 0.9);
+        Assert.True(cursorOverlayManager.IsOverlayVisible); // Inside the 1 s pause.
+        for (int frame = 0; frame < 10 && cursorOverlayManager.IsOverlayVisible; frame++) cursorOverlayManager.AdvanceFrame(0, 0, 0.2);
+        Assert.False(cursorOverlayManager.IsOverlayVisible);
+    });
 }

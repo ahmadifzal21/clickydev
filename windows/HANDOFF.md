@@ -55,7 +55,7 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
 
 ## Current ticket
 
-**E8 T8.4** (transient cursor) — not started. T8.3 done.
+**E8 T8.5** (log file) — not started. T8.4 done.
 
 ## Ticket log (newest last)
 
@@ -305,9 +305,16 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
   turn doesn't touch the state or the transient hide (the new press owns them). A transcription still running from an older press
   is dropped by the existing generation check. Test: backend blocked mid-request, interrupt -> backend sees cancellation, nothing
   spoken, Stop called, state stays Listening, no bubble.
+- T8.4 done: mostly already in place from T2.7 (`ShowTransiently` / `ScheduleTransientHide`, which waits for any pointing flight and
+  the reply bubble, then 1 s, then a 0.4 s fade) and T8.2 (the answer step schedules the hide only after speech ends; every
+  dictation exit path schedules it; a press cancels a pending hide). Appearance is instant, like the Mac (its 2 s fade-in is
+  first appearance only); a press during a fade-out snaps back to full opacity. New test
+  `TransientMode_StaysUpThroughLongSpeech_ThenFadesOutAfterTheLastActivity`: 20 s of fake speech keeps the overlay up, it is
+  still up 0.9 s after, gone shortly after.
 
 ## Tracker sync pending
 
 - E8 T8.1 -> testing
 - E8 T8.2 -> testing
 - E8 T8.3 -> testing
+- E8 T8.4 -> testing
