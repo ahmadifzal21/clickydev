@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading.Channels;
 using System.Windows;
 using Clicky.Windows.AI;
 using Clicky.Windows.Configuration;
@@ -102,44 +103,76 @@ internal sealed class TypedScreenQuestionRunner(
         cursorOverlayManager.ShowTransiently();
         // A voice turn is already Processing (the trigger is ignored then); a typed one starts here.
         interactionStateMachine.Apply(CompanionInteractionTrigger.TypedQuestionAsked);
+
+        // The reply streams in (backend thread) -> textDeltas -> ReplyPlayback on the UI thread: the bubble grows, and the speaker
+        // starts on the first complete line while the backend is still writing the rest.
+        Channel<string> textDeltas = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
+        IReadOnlyList<CompanionScreenCapture> screenCaptures = [];
+        ReplyPlayback replyPlayback = new(textToSpeechSpeaker,
+            onSpeechStarting: () => interactionStateMachine.Apply(CompanionInteractionTrigger.ReplyReady), // Responding while speaking.
+            showText: cursorOverlayManager.ShowResponseText, pointAt: PointAtReplyTarget, cancellationToken);
+
+        void PointAtReplyTarget(PointingParseResult pointing)
+        {
+            if (CompanionScreenQuestion.ResolvePointTarget(pointing, screenCaptures) is not { } pointTarget) return;
+            Trace.WriteLine($"Pointing at \"{pointing.ElementLabel}\" ({pointTarget.X}, {pointTarget.Y}) physical px.");
+            cursorOverlayManager.PointAt(pointTarget.X, pointTarget.Y, pointing.ElementLabel);
+            TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.Pointed, pointing.ElementLabel ?? "");
+        }
+
+        async Task PlayTheReplyAsItArrivesAsync()
+        {
+            await foreach (string textDelta in textDeltas.Reader.ReadAllAsync()) replyPlayback.AddText(textDelta); // Ends with the backend.
+        }
+
         try
         {
             if (delayBeforeCapture > TimeSpan.Zero) await Task.Delay(delayBeforeCapture, cancellationToken);
-            IReadOnlyList<CompanionScreenCapture> screenCaptures = await (screenCapturesTask
+            screenCaptures = await (screenCapturesTask
                 ?? CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, cancellationToken))
                 .WaitAsync(cancellationToken);
             TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.CaptureDone);
 
-            RoutedChatResponse routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
-                CompanionScreenQuestion.BuildChatRequest(userQuestion, screenCaptures, conversationHistory.GetExchanges()),
-                cancellationToken);
+            Task playingTheReply = PlayTheReplyAsItArrivesAsync();
+            RoutedChatResponse routedResponse;
+            try
+            {
+                routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
+                    CompanionScreenQuestion.BuildChatRequest(userQuestion, screenCaptures, conversationHistory.GetExchanges()),
+                    cancellationToken, textDelta =>
+                    {
+                        TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.TextDelta, textDelta);
+                        textDeltas.Writer.TryWrite(textDelta);
+                    });
+            }
+            finally
+            {
+                textDeltas.Writer.TryComplete();
+                await playingTheReply; // Every streamed piece is in the bubble and queued for speech.
+            }
             cancellationToken.ThrowIfCancellationRequested();
             TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.ReplyReady, routedResponse.ResponseText);
             Trace.WriteLine($"Question answered by {routedResponse.AnsweringBackendKind}.");
 
+            replyPlayback.Finish(routedResponse.ResponseText);
             conversationHistory.Record(userQuestion, routedResponse.ResponseText);
-            PointingParseResult pointingParseResult = PointTagParser.ParsePointingCoordinates(routedResponse.ResponseText);
-            bubbleText = pointingParseResult.SpokenText;
-            bool willSpeak = textToSpeechSpeaker is not null && bubbleText.Trim().Length > 0;
+            bubbleText = replyPlayback.VisibleText;
             // Responding (or Idle) before pointing: both draw the triangle, which the spinner would hide during the flight.
-            interactionStateMachine.Apply(willSpeak ? CompanionInteractionTrigger.ReplyReady : CompanionInteractionTrigger.InteractionEnded);
+            if (!replyPlayback.HasStartedSpeaking) interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
             ShowFinishedResponse(bubbleText);
-            if (CompanionScreenQuestion.ResolvePointTarget(pointingParseResult, screenCaptures) is { } pointTarget)
-            {
-                Trace.WriteLine($"Pointing at \"{pointingParseResult.ElementLabel}\" ({pointTarget.X}, {pointTarget.Y}) physical px.");
-                cursorOverlayManager.PointAt(pointTarget.X, pointTarget.Y, pointingParseResult.ElementLabel);
-                TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.Pointed, pointingParseResult.ElementLabel ?? "");
-            }
-            if (willSpeak) await textToSpeechSpeaker!.SpeakAsync(bubbleText, cancellationToken);
+            replyPlayback.PointAtLastTargetIfSilent();
+            await replyPlayback.Speech;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            replyPlayback.Stop();
             bubbleText = ""; // Interrupted by a new press, which now owns the state and the overlay.
             TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.Cancelled);
             Trace.WriteLine("Answer cancelled by a new press.");
         }
         catch (Exception exception)
         {
+            replyPlayback.Stop();
             Trace.TraceWarning($"Question failed: {exception}");
             bubbleText = $"Clicky couldn't answer: {exception.Message}";
             TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.Failed, bubbleText);

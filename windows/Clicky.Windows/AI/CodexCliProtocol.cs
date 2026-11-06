@@ -31,7 +31,7 @@ internal static class CodexCliProtocol
         // answer. Login still comes from CODEX_HOME; codexCli.model in clicky.config.json picks the model.
         string[] arguments =
         [
-            "exec", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never",
+            "exec", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never", "--json",
             "--output-last-message", lastMessageFilePath
         ];
         foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
@@ -77,6 +77,33 @@ internal static class CodexCliProtocol
         }
         prompt.AppendLine($"User: {companionChatRequest.UserPrompt}");
         return prompt.ToString();
+    }
+
+    /// <summary>
+    /// The reply text in one --json event line (<c>{"type":"item.completed","item":{"type":"agent_message","text":"…"}}</c>), else
+    /// null. Codex sends the message whole, not in pieces, so this only saves waiting for the process to exit.
+    /// </summary>
+    public static string? TryGetAgentMessageText(string outputLine)
+    {
+        if (!outputLine.Contains("\"agent_message\"", StringComparison.Ordinal)) return null;
+        try
+        {
+            using System.Text.Json.JsonDocument eventDocument = System.Text.Json.JsonDocument.Parse(outputLine);
+            System.Text.Json.JsonElement root = eventDocument.RootElement;
+            return root.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                   root.TryGetProperty("type", out var eventType) && eventType.ValueKind == System.Text.Json.JsonValueKind.String &&
+                   eventType.GetString() == "item.completed" &&
+                   root.TryGetProperty("item", out var item) && item.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                   item.TryGetProperty("type", out var itemType) && itemType.ValueKind == System.Text.Json.JsonValueKind.String &&
+                   itemType.GetString() == "agent_message" &&
+                   item.TryGetProperty("text", out var text) && text.ValueKind == System.Text.Json.JsonValueKind.String
+                ? text.GetString()
+                : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     /// <param name="lastMessageText">Contents of the -o file, or null if Codex never wrote it.</param>

@@ -10,7 +10,8 @@ internal sealed class ClaudeCodeCliChatBackend(ClaudeCodeCliBackendSettings sett
     public ChatBackendKind BackendKind => ChatBackendKind.ClaudeCodeCli;
     public string DisplayName => "Claude Code CLI";
 
-    public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
+    public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+        Action<string>? onTextDelta = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         string systemPromptFilePath = Path.Combine(Path.GetTempPath(), $"clicky-claude-{Guid.NewGuid():N}.txt");
@@ -20,7 +21,11 @@ internal sealed class ClaudeCodeCliChatBackend(ClaudeCodeCliBackendSettings sett
             var result = await CliChatProcess.RunAsync(
                 ClaudeCodeCliProtocol.BuildStartInfo(settings, systemPromptFilePath),
                 ClaudeCodeCliProtocol.SerializeInput(companionChatRequest),
-                TimeSpan.FromSeconds(settings.ResponseTimeoutSeconds), cancellationToken).ConfigureAwait(false);
+                TimeSpan.FromSeconds(settings.ResponseTimeoutSeconds), cancellationToken,
+                onTextDelta is null ? null : outputLine =>
+                {
+                    if (ClaudeCodeCliProtocol.TryGetTextDelta(outputLine) is { Length: > 0 } textDelta) onTextDelta(textDelta);
+                }).ConfigureAwait(false);
             return ClaudeCodeCliProtocol.ParseResponse(result.StandardOutput, result.StandardError, result.ExitCode);
         }
         catch (Win32Exception exception) when (exception.NativeErrorCode is 2 or 3)

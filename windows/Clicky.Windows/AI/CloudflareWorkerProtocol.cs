@@ -48,10 +48,12 @@ internal static class CloudflareWorkerProtocol
     }
 
     /// <summary>
-    /// Reads the SSE stream to the end and returns the concatenated <c>text_delta</c> chunks. An in-stream <c>error</c> event
-    /// (e.g. overloaded) throws, so the router can fall back instead of showing half an answer.
+    /// Reads the SSE stream to the end and returns the concatenated <c>text_delta</c> chunks, handing each to
+    /// <paramref name="onTextDelta"/> as it arrives. An in-stream <c>error</c> event (e.g. overloaded) throws; the router falls
+    /// back only if no text had arrived yet.
     /// </summary>
-    public static async Task<string> ReadResponseTextAsync(TextReader eventStreamReader, CancellationToken cancellationToken)
+    public static async Task<string> ReadResponseTextAsync(TextReader eventStreamReader, CancellationToken cancellationToken,
+        Action<string>? onTextDelta = null)
     {
         var responseText = new StringBuilder();
         while (await eventStreamReader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
@@ -72,6 +74,7 @@ internal static class CloudflareWorkerProtocol
                          GetStringProperty(delta, "type") == "text_delta" &&
                          GetStringProperty(delta, "text") is { } textChunk:
                     responseText.Append(textChunk);
+                    onTextDelta?.Invoke(textChunk);
                     break;
                 case "error":
                     throw new InvalidOperationException($"The Claude API reported an error mid-answer: {DescribeApiError(eventData)}");

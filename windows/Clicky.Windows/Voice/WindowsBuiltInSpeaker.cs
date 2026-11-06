@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading.Channels;
 using Clicky.Windows.Configuration;
 using NAudio.Wave;
 using Windows.Media.SpeechSynthesis;
@@ -26,12 +27,32 @@ internal sealed class WindowsBuiltInSpeaker : ITextToSpeechSpeaker
     {
     }
 
-    public async Task SpeakAsync(string text, CancellationToken cancellationToken)
+    public Task SpeakAsync(string text, CancellationToken cancellationToken) =>
+        SpeakLinesAsync(SpokenLines.Single(text), cancellationToken);
+
+    public async Task SpeakLinesAsync(ChannelReader<SpokenLine> spokenLines, CancellationToken cancellationToken)
     {
         StopSpeaking();
         int thisSpeechGeneration = speechGeneration;
+        try
+        {
+            await foreach (SpokenLine spokenLine in spokenLines.ReadAllAsync(cancellationToken))
+            {
+                if (thisSpeechGeneration != speechGeneration) return;
+                await SpeakLineAsync(spokenLine, thisSpeechGeneration, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task SpeakLineAsync(SpokenLine spokenLine, int thisSpeechGeneration, CancellationToken cancellationToken)
+    {
+        string text = spokenLine.Text;
         if (string.IsNullOrWhiteSpace(text))
         {
+            spokenLine.OnStarted?.Invoke(); // A line that only points: nothing to say.
             return;
         }
 
@@ -52,6 +73,7 @@ internal sealed class WindowsBuiltInSpeaker : ITextToSpeechSpeaker
         {
             waveOut.Play();
             SoundStarted?.Invoke();
+            spokenLine.OnStarted?.Invoke();
             using (cancellationToken.Register(StopSpeaking))
             {
                 await playbackStopped.Task;

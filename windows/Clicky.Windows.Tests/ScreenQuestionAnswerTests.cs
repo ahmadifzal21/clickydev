@@ -34,6 +34,27 @@ public class ScreenQuestionAnswerTests
             return Task.CompletedTask;
         }
 
+        public List<string> LinesStarted { get; } = [];
+
+        public async Task SpeakLinesAsync(System.Threading.Channels.ChannelReader<SpokenLine> spokenLines, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await foreach (SpokenLine spokenLine in spokenLines.ReadAllAsync(cancellationToken))
+                {
+                    SpokenTexts.Add(spokenLine.Text);
+                    if (SpokenTexts.Count == 1) SoundStarted?.Invoke();
+                    LinesStarted.Add(spokenLine.Text);
+                    spokenLine.OnStarted?.Invoke();
+                    OnSpeak?.Invoke();
+                    if (ReadCurrentState is not null) StatesWhileSpeaking.Add(ReadCurrentState());
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
         public bool IsSpeaking => false;
         public int StopCount { get; private set; }
         public void StopSpeaking() => StopCount++;
@@ -47,7 +68,8 @@ public class ScreenQuestionAnswerTests
         public ChatBackendKind BackendKind => ChatBackendKind.ClaudeCodeCli;
         public string DisplayName => "fake";
 
-        public Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
+        public Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+            Action<string>? onTextDelta = null)
         {
             UserPrompts.Add(companionChatRequest.UserPrompt);
             ImageLabels.AddRange(companionChatRequest.LabeledScreenshotImages.Select(image => image.ImageLabel));
@@ -120,6 +142,86 @@ public class ScreenQuestionAnswerTests
             Assert.Matches(@"^Turn 1 timing from release: transcript [\d.]+ s, capture [\d.]+ s, answer [\d.]+ s, first sound [\d.]+ s, done [\d.]+ s$",
                 CompanionTurnTiming.Describe(turnEventLog.ReadTurn(turnId)));
         });
+
+    /// <summary>Streams its reply in the given pieces, pausing between them so the UI thread can show and speak each one.</summary>
+    private sealed class StreamingBackend(string[] pieces, Exception? failAfterPieces = null) : ICompanionChatBackend
+    {
+        public Func<int, Task>? AfterPiece { get; init; }
+        public ChatBackendKind BackendKind => ChatBackendKind.ClaudeCodeCli;
+        public string DisplayName => "streaming fake";
+
+        public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+            Action<string>? onTextDelta = null)
+        {
+            for (int index = 0; index < pieces.Length; index++)
+            {
+                onTextDelta?.Invoke(pieces[index]);
+                await Task.Delay(30, cancellationToken);
+                if (AfterPiece is not null) await AfterPiece(index);
+            }
+            if (failAfterPieces is not null) throw failAfterPieces;
+            return string.Concat(pieces);
+        }
+    }
+
+    [Fact]
+    public void StreamedReply_IsSpokenLineByLine_StartingBeforeTheReplyIsComplete() =>
+        StaTestThread.Run(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            FakeSpeaker speaker = new();
+            List<string> spokenWhileStreaming = [];
+            StreamingBackend backend = new(["That's the Save button. ", "Click it to keep", " your changes. [POINT:none]"])
+            {
+                AfterPiece = index => { if (index == 1) spokenWhileStreaming.AddRange(speaker.SpokenTexts); return Task.CompletedTask; }
+            };
+            ChatBackendRouter router = new(() => new JobBackendRouting { Answer = ChatBackendKind.ClaudeCodeCli, Fallback = null }, [backend]);
+            TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, new CompanionConversationHistory(),
+                textToSpeechSpeaker: speaker);
+
+            Task<string> answerTask = runner.AnswerAsync("where is save");
+            StaTestThread.WaitFor(answerTask);
+
+            Assert.Equal(["That's the Save button."], spokenWhileStreaming);
+            Assert.Equal(["That's the Save button.", "Click it to keep your changes."], speaker.SpokenTexts);
+            Assert.Equal("That's the Save button. Click it to keep your changes.", answerTask.Result);
+            Assert.Contains(runner.TurnEventLog.ReadAfter(0), turnEvent => turnEvent.Kind == CompanionTurnEventKind.TextDelta);
+        });
+
+    [Fact]
+    public void StreamThatBreaksAfterSpeechStarted_EndsWithTheErrorInsteadOfAFallback() =>
+        StaTestThread.Run(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            FakeSpeaker speaker = new();
+            FakeBackend fallback = new(_ => Task.FromResult("fallback answer"));
+            StreamingBackend streamingBackend = new(["It's the Save button. ", "Then"], new InvalidOperationException("stream broke"));
+            ChatBackendRouter router = new(() => new JobBackendRouting
+            {
+                Answer = ChatBackendKind.ClaudeCodeCli, Fallback = ChatBackendKind.CodexCli
+            }, [streamingBackend, new CodexKindBackend(fallback)]);
+            TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, new CompanionConversationHistory(),
+                textToSpeechSpeaker: speaker);
+
+            Task<string> answerTask = runner.AnswerAsync("where is save");
+            StaTestThread.WaitFor(answerTask);
+
+            Assert.Equal("Clicky couldn't answer: stream broke", answerTask.Result);
+            Assert.Empty(fallback.UserPrompts);
+            Assert.Equal(["It's the Save button.", TypedScreenQuestionRunner.SpokenErrorLine], speaker.SpokenTexts);
+        });
+
+    /// <summary>Presents another fake as the Codex backend, so a router can hold it next to a Claude-kind fake.</summary>
+    private sealed class CodexKindBackend(ICompanionChatBackend innerBackend) : ICompanionChatBackend
+    {
+        public ChatBackendKind BackendKind => ChatBackendKind.CodexCli;
+        public string DisplayName => "codex fake";
+
+        public Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+            Action<string>? onTextDelta = null) => innerBackend.GetResponseTextAsync(companionChatRequest, cancellationToken, onTextDelta);
+    }
 
     private static CompanionScreenCapture FakePressCapture()
     {

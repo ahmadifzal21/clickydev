@@ -7,8 +7,9 @@ namespace Clicky.Windows.AI;
 public sealed record RoutedChatResponse(string ResponseText, ChatBackendKind AnsweringBackendKind);
 
 /// <summary>
-/// Sends each job to the backend the user picked for it and, if that backend throws or times out, tries the configured
-/// fallback exactly once. Routing is read on every request, so tray / panel changes apply to the next question.
+/// Sends each job to the backend the user picked for it and, if that backend throws or times out before any text arrived, tries
+/// the configured fallback exactly once. Once text has streamed (and may already be spoken), a failure ends the turn instead.
+/// Routing is read on every request, so tray / panel changes apply to the next question.
 /// </summary>
 internal sealed class ChatBackendRouter(Func<JobBackendRouting> getCurrentRouting, IEnumerable<ICompanionChatBackend> chatBackends)
 {
@@ -16,21 +17,28 @@ internal sealed class ChatBackendRouter(Func<JobBackendRouting> getCurrentRoutin
         chatBackends.ToDictionary(chatBackend => chatBackend.BackendKind);
 
     public async Task<RoutedChatResponse> GetResponseAsync(
-        CompanionJobKind companionJobKind, CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
+        CompanionJobKind companionJobKind, CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+        Action<string>? onTextDelta = null)
     {
         JobBackendRouting routing = getCurrentRouting();
         ChatBackendKind routedBackendKind = routing.GetBackendForJob(companionJobKind);
+        bool hasStreamedText = false;
+        Action<string>? onRoutedTextDelta = onTextDelta is null ? null : textDelta =>
+        {
+            hasStreamedText = true;
+            onTextDelta(textDelta);
+        };
         try
         {
-            return await GetResponseFromAsync(routedBackendKind, companionChatRequest, cancellationToken).ConfigureAwait(false);
+            return await GetResponseFromAsync(routedBackendKind, companionChatRequest, cancellationToken, onRoutedTextDelta).ConfigureAwait(false);
         }
-        catch (Exception routedException) when (!cancellationToken.IsCancellationRequested &&
+        catch (Exception routedException) when (!cancellationToken.IsCancellationRequested && !hasStreamedText &&
                                                 routing.Fallback is { } fallbackBackendKind && fallbackBackendKind != routedBackendKind)
         {
             Trace.TraceWarning($"{companionJobKind} via {routedBackendKind} failed, trying {fallbackBackendKind}: {routedException.Message}");
             try
             {
-                return await GetResponseFromAsync(fallbackBackendKind, companionChatRequest, cancellationToken).ConfigureAwait(false);
+                return await GetResponseFromAsync(fallbackBackendKind, companionChatRequest, cancellationToken, onTextDelta).ConfigureAwait(false);
             }
             catch (Exception fallbackException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -43,11 +51,12 @@ internal sealed class ChatBackendRouter(Func<JobBackendRouting> getCurrentRoutin
     }
 
     private async Task<RoutedChatResponse> GetResponseFromAsync(
-        ChatBackendKind chatBackendKind, CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
+        ChatBackendKind chatBackendKind, CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+        Action<string>? onTextDelta)
     {
         if (!chatBackendsByKind.TryGetValue(chatBackendKind, out ICompanionChatBackend? chatBackend))
             throw new InvalidOperationException($"No {chatBackendKind} backend is available.");
-        string responseText = await chatBackend.GetResponseTextAsync(companionChatRequest, cancellationToken).ConfigureAwait(false);
+        string responseText = await chatBackend.GetResponseTextAsync(companionChatRequest, cancellationToken, onTextDelta).ConfigureAwait(false);
         return new RoutedChatResponse(responseText, chatBackendKind);
     }
 

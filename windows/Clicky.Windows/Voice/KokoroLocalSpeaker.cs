@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Channels;
 using Clicky.Windows.Configuration;
 using KokoroSharp;
 using KokoroSharp.Core;
@@ -7,6 +8,9 @@ using KokoroSharp.Processing;
 using NAudio.Wave;
 
 namespace Clicky.Windows.Voice;
+
+/// <summary>One line of a reply to speak. <paramref name="OnStarted"/> runs (on the caller's thread) when its audio starts.</summary>
+internal sealed record SpokenLine(string Text, Action? OnStarted = null);
 
 /// <summary>Speaks Clicky's replies aloud. Port target of the Mac's ElevenLabsTTSClient.</summary>
 internal interface ITextToSpeechSpeaker : IDisposable
@@ -26,7 +30,47 @@ internal interface ITextToSpeechSpeaker : IDisposable
     /// <summary>Stops anything already speaking, then speaks <paramref name="text"/>. Finishes when the speech ends or is stopped.</summary>
     Task SpeakAsync(string text, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Stops anything already speaking, then speaks each line as it arrives (a reply still being written), back to back.
+    /// Finishes when the reader is complete and everything has been said, or when the speech is stopped. Never throws.
+    /// </summary>
+    Task SpeakLinesAsync(ChannelReader<SpokenLine> spokenLines, CancellationToken cancellationToken);
+
     void StopSpeaking();
+}
+
+internal static class SpokenLines
+{
+    /// <summary>A reader holding just <paramref name="text"/>, for speaking a whole reply in one go.</summary>
+    public static ChannelReader<SpokenLine> Single(string text)
+    {
+        Channel<SpokenLine> spokenLines = Channel.CreateUnbounded<SpokenLine>();
+        spokenLines.Writer.TryWrite(new SpokenLine(text));
+        spokenLines.Writer.TryComplete();
+        return spokenLines.Reader;
+    }
+
+    /// <summary><paramref name="firstLine"/> (if any) followed by whatever <paramref name="laterLines"/> still brings.</summary>
+    public static ChannelReader<SpokenLine> Prepend(SpokenLine? firstLine, ChannelReader<SpokenLine> laterLines, CancellationToken cancellationToken)
+    {
+        Channel<SpokenLine> spokenLines = Channel.CreateUnbounded<SpokenLine>();
+        if (firstLine is not null) spokenLines.Writer.TryWrite(firstLine);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (SpokenLine laterLine in laterLines.ReadAllAsync(cancellationToken)) spokenLines.Writer.TryWrite(laterLine);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                spokenLines.Writer.TryComplete();
+            }
+        }, CancellationToken.None);
+        return spokenLines.Reader;
+    }
 }
 
 internal static class TextToSpeechSpeakerFactory
@@ -177,24 +221,26 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
         }
     }
 
-    public async Task SpeakAsync(string text, CancellationToken cancellationToken)
+    public Task SpeakAsync(string text, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(text)) return SpeakLinesAsync(SpokenLines.Single(text), cancellationToken);
+        StopSpeaking();
+        return Task.CompletedTask;
+    }
+
+    public async Task SpeakLinesAsync(ChannelReader<SpokenLine> spokenLines, CancellationToken cancellationToken)
     {
         StopSpeaking();
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return;
-        }
-
         if (loadedKokoroInference is not { } kokoroInference || selectedKokoroVoice is not { } kokoroVoice)
         {
             Console.WriteLine($"Kokoro isn't ready ({currentStatus}); speaking with the Windows voice.");
-            await fallbackSpeaker.SpeakAsync(text, cancellationToken);
+            await fallbackSpeaker.SpeakLinesAsync(spokenLines, cancellationToken);
             return;
         }
 
         CancellationTokenSource speechCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         currentSpeechCancellation = speechCancellation;
-        currentKokoroSpeech = SpeakWithKokoroAsync(text, kokoroInference, kokoroVoice, speechCancellation.Token);
+        currentKokoroSpeech = SpeakWithKokoroAsync(spokenLines, kokoroInference, kokoroVoice, speechCancellation.Token);
         await currentKokoroSpeech;
     }
 
@@ -204,8 +250,11 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
         fallbackSpeaker.StopSpeaking();
     }
 
-    /// <summary>Synthesizes chunk by chunk and plays each as soon as it's ready. Never throws.</summary>
-    private async Task SpeakWithKokoroAsync(string text, KokoroInference kokoroInference, KokoroVoice kokoroVoice,
+    /// <summary>
+    /// Synthesizes line by line, chunk by chunk, and plays each chunk as soon as it's ready. A line's OnStarted runs when playback
+    /// reaches the line's first audio (tracked by bytes played, so it follows the sound card, not a timer). Never throws.
+    /// </summary>
+    private async Task SpeakWithKokoroAsync(ChannelReader<SpokenLine> spokenLines, KokoroInference kokoroInference, KokoroVoice kokoroVoice,
         CancellationToken speechCancellationToken)
     {
         Stopwatch firstSoundStopwatch = Stopwatch.StartNew();
@@ -215,43 +264,104 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
             ReadFully = true,
             BufferDuration = TimeSpan.FromMinutes(10)
         };
+        long queuedByteCount = 0;
+        Queue<(long StartByte, Action OnStarted)> pendingLineStarts = new();
         bool hasStartedPlaying = false;
+        SpokenLine? lineInProgress = null;
+        using CancellationTokenSource stopWatchingLineStarts = CancellationTokenSource.CreateLinkedTokenSource(speechCancellationToken);
+        Task watchingLineStarts = Task.CompletedTask;
+
+        void QueueAudio(float[] samples)
+        {
+            byte[] sampleBytes = KokoroPlayback.GetBytes(samples);
+            queuedSpeechAudio.AddSamples(sampleBytes, 0, sampleBytes.Length);
+            queuedByteCount += sampleBytes.Length;
+        }
+
+        void QueueSilence(TimeSpan silenceDuration) =>
+            QueueAudio(new float[(int)(silenceDuration.TotalSeconds * KokoroPlayback.waveFormat.SampleRate)]);
+
+        void RunLineStartsThatHavePlayed()
+        {
+            long playedByteCount = queuedByteCount - queuedSpeechAudio.BufferedBytes;
+            while (pendingLineStarts.Count > 0 && pendingLineStarts.Peek().StartByte <= playedByteCount)
+            {
+                pendingLineStarts.Dequeue().OnStarted();
+            }
+        }
+
+        async Task WatchLineStartsAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (true)
+                {
+                    RunLineStartsThatHavePlayed();
+                    await Task.Delay(30, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
         try
         {
             using IWavePlayer wavePlayer = createWavePlayer();
             wavePlayer.Init(queuedSpeechAudio);
             using CancellationTokenRegistration stopPlaybackOnCancel = speechCancellationToken.Register(wavePlayer.Stop);
 
-            List<int[]> tokenChunks = await RunExclusiveInferenceAsync(() => SegmentationSystem.SplitToSegments(
-                Tokenizer.Tokenize(text.Trim(), KokoroLangCodeHelper.GetLangCode(kokoroVoice)), QuickFirstSoundSegmentation),
-                speechCancellationToken);
-            foreach (int[] tokenChunk in tokenChunks)
+            await foreach (SpokenLine spokenLine in spokenLines.ReadAllAsync(speechCancellationToken))
             {
-                float[] chunkSamples = await RunExclusiveInferenceAsync(
-                    () => KokoroPlayback.PostProcessSamples(kokoroInference.Synthesize(tokenChunk, kokoroVoice.Features)),
-                    speechCancellationToken);
-                speechCancellationToken.ThrowIfCancellationRequested();
-                AddSamples(queuedSpeechAudio, chunkSamples);
-                if (tokenChunk.Length > 0 && Tokenizer.PunctuationTokens.Contains(tokenChunk[^1]))
+                lineInProgress = spokenLine;
+                if (spokenLine.OnStarted is not null)
                 {
-                    AddSilence(queuedSpeechAudio, TimeSpan.FromSeconds(PauseAfterPunctuation[Tokenizer.TokenToChar[tokenChunk[^1]]]));
+                    pendingLineStarts.Enqueue((queuedByteCount, spokenLine.OnStarted));
                 }
 
-                if (!hasStartedPlaying)
+                if (string.IsNullOrWhiteSpace(spokenLine.Text))
                 {
-                    hasStartedPlaying = true;
-                    wavePlayer.Play();
-                    SoundStarted?.Invoke();
-                    Console.WriteLine($"Kokoro first sound after {firstSoundStopwatch.ElapsedMilliseconds} ms");
+                    if (!hasStartedPlaying) RunLineStartsThatHavePlayed(); // A line that only points, before any sound.
+                    lineInProgress = null;
+                    continue;
                 }
+
+                // Only the very first chunk is kept short; later lines are synthesized while earlier ones are still being heard.
+                List<int[]> tokenChunks = await RunExclusiveInferenceAsync(() => SegmentationSystem.SplitToSegments(
+                    Tokenizer.Tokenize(spokenLine.Text.Trim(), KokoroLangCodeHelper.GetLangCode(kokoroVoice)),
+                    hasStartedPlaying ? new DefaultSegmentationConfig() : QuickFirstSoundSegmentation), speechCancellationToken);
+                foreach (int[] tokenChunk in tokenChunks)
+                {
+                    float[] chunkSamples = await RunExclusiveInferenceAsync(
+                        () => KokoroPlayback.PostProcessSamples(kokoroInference.Synthesize(tokenChunk, kokoroVoice.Features)),
+                        speechCancellationToken);
+                    speechCancellationToken.ThrowIfCancellationRequested();
+                    QueueAudio(chunkSamples);
+                    if (tokenChunk.Length > 0 && Tokenizer.PunctuationTokens.Contains(tokenChunk[^1]))
+                    {
+                        QueueSilence(TimeSpan.FromSeconds(PauseAfterPunctuation[Tokenizer.TokenToChar[tokenChunk[^1]]]));
+                    }
+
+                    if (!hasStartedPlaying)
+                    {
+                        hasStartedPlaying = true;
+                        wavePlayer.Play();
+                        SoundStarted?.Invoke();
+                        RunLineStartsThatHavePlayed();
+                        watchingLineStarts = WatchLineStartsAsync(stopWatchingLineStarts.Token);
+                        Console.WriteLine($"Kokoro first sound after {firstSoundStopwatch.ElapsedMilliseconds} ms");
+                    }
+                }
+                lineInProgress = null;
             }
 
-            AddSilence(queuedSpeechAudio, TrailingSilence);
+            QueueSilence(TrailingSilence);
             while (queuedSpeechAudio.BufferedBytes > 0)
             {
                 await Task.Delay(50, speechCancellationToken);
             }
 
+            RunLineStartsThatHavePlayed(); // Everything has played, so every line has started.
             wavePlayer.Stop();
         }
         catch (OperationCanceledException) when (speechCancellationToken.IsCancellationRequested)
@@ -264,8 +374,14 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
             {
                 // Nothing was heard yet, so the Windows voice can say the whole reply. Mid-reply it just stops: restarting
                 // in another voice would repeat what was already said.
-                await fallbackSpeaker.SpeakAsync(text, speechCancellationToken);
+                await fallbackSpeaker.SpeakLinesAsync(SpokenLines.Prepend(lineInProgress, spokenLines, speechCancellationToken),
+                    speechCancellationToken);
             }
+        }
+        finally
+        {
+            stopWatchingLineStarts.Cancel();
+            await watchingLineStarts;
         }
     }
 
@@ -289,15 +405,6 @@ internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
             inferenceLock.Release();
         }
     }
-
-    private static void AddSamples(BufferedWaveProvider queuedSpeechAudio, float[] samples)
-    {
-        byte[] sampleBytes = KokoroPlayback.GetBytes(samples);
-        queuedSpeechAudio.AddSamples(sampleBytes, 0, sampleBytes.Length);
-    }
-
-    private static void AddSilence(BufferedWaveProvider queuedSpeechAudio, TimeSpan silenceDuration) =>
-        AddSamples(queuedSpeechAudio, new float[(int)(silenceDuration.TotalSeconds * KokoroPlayback.waveFormat.SampleRate)]);
 
     private void SelectVoice(string kokoroVoiceName)
     {

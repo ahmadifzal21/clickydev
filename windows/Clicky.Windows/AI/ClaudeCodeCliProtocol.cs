@@ -26,7 +26,7 @@ internal static class ClaudeCodeCliProtocol
         // in an argument. Safe mode preserves the user's login but excludes project/user hooks, plugins and instructions.
         string[] arguments =
         [
-            "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+            "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
             "--system-prompt-file", systemPromptFilePath, "--tools", "", "--safe-mode", "--strict-mcp-config",
             "--disable-slash-commands", "--no-session-persistence"
         ];
@@ -94,6 +94,31 @@ internal static class ClaudeCodeCliProtocol
         // A screen question mentioning @paths or /commands must remain literal model input.
         client_composed = true
     });
+
+    /// <summary>
+    /// The reply text in one --include-partial-messages line
+    /// (<c>{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"…"}}}</c>), else null.
+    /// </summary>
+    public static string? TryGetTextDelta(string outputLine)
+    {
+        if (!outputLine.Contains("\"text_delta\"", StringComparison.Ordinal)) return null; // Most lines aren't; skip parsing them.
+        try
+        {
+            using JsonDocument message = JsonDocument.Parse(outputLine);
+            JsonElement root = message.RootElement;
+            return root.ValueKind == JsonValueKind.Object && GetStringProperty(root, "type") == "stream_event" &&
+                   root.TryGetProperty("event", out JsonElement streamEvent) && streamEvent.ValueKind == JsonValueKind.Object &&
+                   GetStringProperty(streamEvent, "type") == "content_block_delta" &&
+                   streamEvent.TryGetProperty("delta", out JsonElement delta) && delta.ValueKind == JsonValueKind.Object &&
+                   GetStringProperty(delta, "type") == "text_delta"
+                ? GetStringProperty(delta, "text")
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null; // ParseResponse reports invalid output once the process ends.
+        }
+    }
 
     public static string ParseResponse(string standardOutput, string standardError, int exitCode)
     {

@@ -6,6 +6,16 @@ namespace Clicky.Windows.Tests;
 public class CodexCliProtocolTests
 {
     [Fact]
+    public void AgentMessage_IsReadFromItsCompletedEvent_AndOtherEventsGiveNothing()
+    {
+        Assert.Equal("The sky is blue.", CodexCliProtocol.TryGetAgentMessageText(
+            """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"The sky is blue."}}"""));
+        Assert.Null(CodexCliProtocol.TryGetAgentMessageText("""{"type":"item.started","item":{"id":"item_0","type":"agent_message","text":""}}"""));
+        Assert.Null(CodexCliProtocol.TryGetAgentMessageText("""{"type":"item.completed","item":{"id":"item_1","type":"reasoning","text":"agent_message"}}"""));
+        Assert.Null(CodexCliProtocol.TryGetAgentMessageText("""{"type":"turn.completed","usage":{}}"""));
+    }
+
+    [Fact]
     public void BuildStartInfo_IsReadOnlyEphemeralWithOneImageFlagPerScreenshotAndPromptOnStdin()
     {
         var startInfo = CodexCliProtocol.BuildStartInfo(
@@ -14,7 +24,7 @@ public class CodexCliProtocolTests
 
         Assert.Equal(
             [
-                "exec", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never",
+                "exec", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never", "--json",
                 "--output-last-message", @"C:\t\last-message.txt", "--model", "gpt-test",
                 "--image", @"C:\t\screen-1.jpg", "--image", @"C:\t\screen 2.jpg", "--", "-"
             ],

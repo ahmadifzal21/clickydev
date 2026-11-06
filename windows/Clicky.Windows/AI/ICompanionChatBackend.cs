@@ -38,5 +38,10 @@ public interface ICompanionChatBackend
     /// Sends the request and returns the full reply text. Throws on failure or timeout,
     /// so the router can try the fallback backend.
     /// </summary>
-    Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken);
+    /// <param name="onTextDelta">
+    /// Called (on any thread) with each piece of the reply as it arrives, so speech can start before the reply is complete.
+    /// A backend that can't stream calls it once with the whole reply, or not at all.
+    /// </param>
+    Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+        Action<string>? onTextDelta = null);
 }

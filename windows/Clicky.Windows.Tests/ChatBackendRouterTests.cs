@@ -99,6 +99,47 @@ public class ChatBackendRouterTests
         Assert.Equal(ChatBackendKind.CodexCli, (await router.GetResponseAsync(CompanionJobKind.Answer, SampleRequest, default)).AnsweringBackendKind);
     }
 
+    [Fact]
+    public async Task FailureAfterTextHasStreamed_DoesNotFallBack_SoNothingIsSaidTwice()
+    {
+        var backends = AllBackends();
+        backends.Single(backend => backend.BackendKind == ChatBackendKind.ClaudeCodeCli).OnCallWithDelta = onTextDelta =>
+        {
+            onTextDelta?.Invoke("first words ");
+            throw new InvalidOperationException("stream broke");
+        };
+        var router = new ChatBackendRouter(() => new JobBackendRouting
+        {
+            Answer = ChatBackendKind.ClaudeCodeCli, Fallback = ChatBackendKind.CodexCli
+        }, backends);
+        List<string> deltas = [];
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            router.GetResponseAsync(CompanionJobKind.Answer, SampleRequest, CancellationToken.None, deltas.Add));
+
+        Assert.Equal("stream broke", exception.Message);
+        Assert.Equal(["first words "], deltas);
+        Assert.Equal(0, backends.Single(backend => backend.BackendKind == ChatBackendKind.CodexCli).CallCount);
+    }
+
+    [Fact]
+    public async Task FailureBeforeAnyText_StillFallsBack_AndTheFallbackStreams()
+    {
+        var backends = AllBackends(ChatBackendKind.ClaudeCodeCli);
+        backends.Single(backend => backend.BackendKind == ChatBackendKind.CodexCli).OnCallWithDelta =
+            onTextDelta => onTextDelta?.Invoke("from the fallback");
+        var router = new ChatBackendRouter(() => new JobBackendRouting
+        {
+            Answer = ChatBackendKind.ClaudeCodeCli, Fallback = ChatBackendKind.CodexCli
+        }, backends);
+        List<string> deltas = [];
+
+        RoutedChatResponse response = await router.GetResponseAsync(CompanionJobKind.Answer, SampleRequest, CancellationToken.None, deltas.Add);
+
+        Assert.Equal(ChatBackendKind.CodexCli, response.AnsweringBackendKind);
+        Assert.Equal(["from the fallback"], deltas);
+    }
+
     private static FakeChatBackend[] AllBackends(params ChatBackendKind[] failing) =>
         Enum.GetValues<ChatBackendKind>().Select(kind => new FakeChatBackend(kind)
         {
@@ -109,13 +150,16 @@ public class ChatBackendRouterTests
     {
         public int CallCount { get; private set; }
         public Action? OnCall { get; set; }
+        public Action<Action<string>?>? OnCallWithDelta { get; set; }
         public ChatBackendKind BackendKind => backendKind;
         public string DisplayName => $"{backendKind} display";
 
-        public Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
+        public Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+            Action<string>? onTextDelta = null)
         {
             CallCount++;
             OnCall?.Invoke();
+            OnCallWithDelta?.Invoke(onTextDelta);
             return Task.FromResult($"reply from {backendKind}");
         }
     }

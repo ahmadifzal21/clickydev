@@ -14,7 +14,8 @@ internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : IC
     public ChatBackendKind BackendKind => ChatBackendKind.CodexCli;
     public string DisplayName => "Codex CLI";
 
-    public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
+    public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+        Action<string>? onTextDelta = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         string requestDirectory = Path.Combine(Path.GetTempPath(), "clicky-codex-" + Guid.NewGuid().ToString("N"));
@@ -34,7 +35,13 @@ internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : IC
             var result = await CliChatProcess.RunAsync(
                 CodexCliProtocol.BuildStartInfo(settings, screenshotFilePaths, lastMessageFilePath, requestDirectory),
                 CodexCliProtocol.BuildPrompt(companionChatRequest),
-                TimeSpan.FromSeconds(settings.ResponseTimeoutSeconds), cancellationToken).ConfigureAwait(false);
+                TimeSpan.FromSeconds(settings.ResponseTimeoutSeconds), cancellationToken,
+                // shortcut: a second agent message would be spoken too, though only the last is the answer; tools are off, so
+                // Codex sends one. Upgrade if multi-message replies show up in the logs.
+                onTextDelta is null ? null : outputLine =>
+                {
+                    if (CodexCliProtocol.TryGetAgentMessageText(outputLine) is { Length: > 0 } messageText) onTextDelta(messageText);
+                }).ConfigureAwait(false);
             string? lastMessageText = File.Exists(lastMessageFilePath)
                 ? await File.ReadAllTextAsync(lastMessageFilePath, CancellationToken.None).ConfigureAwait(false)
                 : null;

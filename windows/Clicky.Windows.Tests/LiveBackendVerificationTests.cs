@@ -183,9 +183,10 @@ public sealed class LiveBackendVerificationTests(ITestOutputHelper output)
         public ChatBackendKind BackendKind => innerBackend.BackendKind;
         public string DisplayName => innerBackend.DisplayName;
 
-        public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
+        public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+            Action<string>? onTextDelta = null)
         {
-            string responseText = await innerBackend.GetResponseTextAsync(companionChatRequest, cancellationToken);
+            string responseText = await innerBackend.GetResponseTextAsync(companionChatRequest, cancellationToken, onTextDelta);
             owner.lastRawResponse = responseText;
             return responseText;
         }

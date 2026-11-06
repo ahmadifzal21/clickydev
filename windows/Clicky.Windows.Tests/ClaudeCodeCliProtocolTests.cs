@@ -7,6 +7,17 @@ namespace Clicky.Windows.Tests;
 public class ClaudeCodeCliProtocolTests
 {
     [Fact]
+    public void TextDelta_IsReadFromPartialMessageLines_AndOtherLinesGiveNothing()
+    {
+        Assert.Equal("The sky gl", ClaudeCodeCliProtocol.TryGetTextDelta(
+            """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"The sky gl"}},"session_id":"s"}"""));
+        Assert.Null(ClaudeCodeCliProtocol.TryGetTextDelta(
+            """{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}"""));
+        Assert.Null(ClaudeCodeCliProtocol.TryGetTextDelta("""{"type":"result","subtype":"success","result":"text_delta"}"""));
+        Assert.Null(ClaudeCodeCliProtocol.TryGetTextDelta("not json but mentions \"text_delta\""));
+    }
+
+    [Fact]
     public void Arguments_PassPromptByFileAndModelLiteral_AndDisableActionsAndPersistence()
     {
         const string systemPromptFilePath = @"C:\Temp Dir\clicky-claude-1.txt";
@@ -17,7 +28,7 @@ public class ClaudeCodeCliProtocolTests
         Assert.Equal(settings.ExecutablePath, startInfo.FileName);
         Assert.Equal(new[]
         {
-            "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+            "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
             "--system-prompt-file", systemPromptFilePath, "--tools", "", "--safe-mode", "--strict-mcp-config",
             "--disable-slash-commands", "--no-session-persistence", "--model", "opus"
         }, startInfo.ArgumentList);

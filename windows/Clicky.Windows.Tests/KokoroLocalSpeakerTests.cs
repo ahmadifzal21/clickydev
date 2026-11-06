@@ -31,6 +31,25 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
             return currentSpeech.Task;
         }
 
+        public async Task SpeakLinesAsync(System.Threading.Channels.ChannelReader<SpokenLine> spokenLines, CancellationToken cancellationToken)
+        {
+            currentSpeech = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource thisSpeech = currentSpeech;
+            try
+            {
+                await foreach (SpokenLine spokenLine in spokenLines.ReadAllAsync(cancellationToken))
+                {
+                    SpokenTexts.Add(spokenLine.Text);
+                    spokenLine.OnStarted?.Invoke();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            await thisSpeech.Task;
+        }
+
         public void StopSpeaking()
         {
             StopCount++;
@@ -292,6 +311,47 @@ public sealed class KokoroLocalSpeakerTests : IDisposable
     }
 
     private const string ThreeSentenceReply = "That's the Save button. It's in the top left corner. Click it, and your changes are kept.";
+
+    [Fact]
+    public async Task SpeakLines_StartsOnTheFirstLine_AndSpeaksLinesThatArriveLater()
+    {
+        FakeKokoroModel fakeKokoroModel = new();
+        (KokoroLocalSpeaker kokoroLocalSpeaker, RecordingFallbackSpeaker fallbackSpeaker) = await CreateReadySpeakerAsync(fakeKokoroModel);
+        System.Threading.Channels.Channel<SpokenLine> spokenLines = System.Threading.Channels.Channel.CreateUnbounded<SpokenLine>();
+        TaskCompletionSource firstLineStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource secondLineStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        spokenLines.Writer.TryWrite(new SpokenLine("That's the Save button.", firstLineStarted.SetResult));
+        Task speech = kokoroLocalSpeaker.SpeakLinesAsync(spokenLines.Reader, CancellationToken.None);
+        await firstLineStarted.Task.WaitAsync(TimeSpan.FromSeconds(10)); // Speaking before the rest of the reply exists.
+        spokenLines.Writer.TryWrite(new SpokenLine("Click it to keep your changes.", secondLineStarted.SetResult));
+        spokenLines.Writer.TryComplete();
+        await speech.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(secondLineStarted.Task.IsCompleted);
+        Assert.Empty(fallbackSpeaker.SpokenTexts);
+        Assert.True(fakeKokoroModel.SynthesizeCallCount >= 3, "warm-up plus at least one chunk per line");
+    }
+
+    [Fact]
+    public async Task SpeakLines_StopsWhenCancelled_WhileWaitingForTheNextLine()
+    {
+        (KokoroLocalSpeaker kokoroLocalSpeaker, _) = await CreateReadySpeakerAsync(new FakeKokoroModel());
+        System.Threading.Channels.Channel<SpokenLine> spokenLines = System.Threading.Channels.Channel.CreateUnbounded<SpokenLine>();
+        using CancellationTokenSource speechCancellation = new();
+        TaskCompletionSource firstLineStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool laterLineStarted = false;
+
+        spokenLines.Writer.TryWrite(new SpokenLine("One moment.", firstLineStarted.SetResult));
+        Task speech = kokoroLocalSpeaker.SpeakLinesAsync(spokenLines.Reader, speechCancellation.Token);
+        await firstLineStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        speechCancellation.Cancel();
+        await speech.WaitAsync(TimeSpan.FromSeconds(5));
+        spokenLines.Writer.TryWrite(new SpokenLine("Too late.", () => laterLineStarted = true));
+
+        Assert.False(laterLineStarted);
+        Assert.False(kokoroLocalSpeaker.IsSpeaking);
+    }
 
     /// <summary>A speaker whose (fake) model has loaded and warmed up; <paramref name="createdPlayers"/> collects its sound outputs.</summary>
     private static async Task<(KokoroLocalSpeaker Speaker, RecordingFallbackSpeaker Fallback)> CreateReadySpeakerAsync(

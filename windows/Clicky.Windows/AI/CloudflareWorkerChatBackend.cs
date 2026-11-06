@@ -20,7 +20,8 @@ internal sealed class CloudflareWorkerChatBackend(CloudflareWorkerBackendSetting
     public ChatBackendKind BackendKind => ChatBackendKind.CloudflareWorker;
     public string DisplayName => "Cloudflare Worker";
 
-    public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken)
+    public async Task<string> GetResponseTextAsync(CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
+        Action<string>? onTextDelta = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Uri chatUri = CloudflareWorkerProtocol.BuildChatUri(settings);
@@ -42,7 +43,7 @@ internal sealed class CloudflareWorkerChatBackend(CloudflareWorkerBackendSetting
             }
             await using Stream eventStream = await httpResponse.Content.ReadAsStreamAsync(timeoutSource.Token).ConfigureAwait(false);
             using var eventStreamReader = new StreamReader(eventStream, Encoding.UTF8);
-            return await CloudflareWorkerProtocol.ReadResponseTextAsync(eventStreamReader, timeoutSource.Token).ConfigureAwait(false);
+            return await CloudflareWorkerProtocol.ReadResponseTextAsync(eventStreamReader, timeoutSource.Token, onTextDelta).ConfigureAwait(false);
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {

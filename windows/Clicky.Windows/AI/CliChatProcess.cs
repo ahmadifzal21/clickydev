@@ -7,7 +7,8 @@ namespace Clicky.Windows.AI;
 internal static class CliChatProcess
 {
     public static async Task<(string StandardOutput, string StandardError, int ExitCode)> RunAsync(
-        ProcessStartInfo startInfo, string standardInput, TimeSpan responseTimeout, CancellationToken cancellationToken)
+        ProcessStartInfo startInfo, string standardInput, TimeSpan responseTimeout, CancellationToken cancellationToken,
+        Action<string>? onStandardOutputLine = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (responseTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(responseTimeout), "Response timeout must be positive.");
@@ -27,7 +28,7 @@ internal static class CliChatProcess
                 Trace.TraceWarning($"Could not stop chat process: {exception.Message}");
             }
         });
-        Task<string> standardOutput = process.StandardOutput.ReadToEndAsync(processCancellationToken);
+        Task<string> standardOutput = ReadAllLinesAsync(process.StandardOutput, onStandardOutputLine, processCancellationToken);
         Task<string> standardError = process.StandardError.ReadToEndAsync(processCancellationToken);
         try
         {
@@ -63,6 +64,19 @@ internal static class CliChatProcess
             try { await Task.WhenAll(standardOutput, standardError).ConfigureAwait(false); }
             catch (OperationCanceledException) when (processCancellationToken.IsCancellationRequested) { }
         }
+    }
+
+    /// <summary>Reads stdout to the end, handing each line to <paramref name="onLine"/> as soon as it arrives (streamed replies).</summary>
+    private static async Task<string> ReadAllLinesAsync(StreamReader reader, Action<string>? onLine, CancellationToken cancellationToken)
+    {
+        if (onLine is null) return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        var allText = new System.Text.StringBuilder();
+        while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+        {
+            allText.Append(line).Append('\n');
+            onLine(line);
+        }
+        return allText.ToString();
     }
 
     /// <summary>
