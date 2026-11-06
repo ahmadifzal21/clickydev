@@ -7,8 +7,8 @@ using Clicky.Windows.Overlay;
 namespace Clicky.Windows.Voice;
 
 /// <summary>
-/// Hold the shortcut to record, release to transcribe (E6 checkpoint). The transcript is logged and
-/// shown in the panel; E8 will send it on to the AI backend instead of stopping here.
+/// Hold the shortcut to record, release to transcribe. The transcript is logged, shown in the panel and handed to the
+/// answer step (Mac: CompanionManager.sendTranscriptToClaudeWithScreenshot); an empty one just returns to idle.
 /// All methods run on the WPF dispatcher thread.
 /// </summary>
 internal sealed class PushToTalkDictation
@@ -19,13 +19,18 @@ internal sealed class PushToTalkDictation
     private readonly MicrophoneRecorder microphoneRecorder;
     private readonly CompanionInteractionStateMachine interactionStateMachine;
 
+    /// <summary>Answers a non-empty transcript (capture, backend, speech, pointing); null = dictation only (E6 behaviour).</summary>
+    private readonly Func<string, CancellationToken, Task>? answerTranscriptAsync;
+
     /// <summary>Bumped on every press, so a slow transcription from an earlier press can't overwrite a newer state.</summary>
     private int dictationGeneration;
 
     public PushToTalkDictation(CursorOverlayManager cursorOverlayManager, ISpeechToTextTranscriber speechToTextTranscriber,
         Action<string> showVoiceNote, Dispatcher dispatcher, MicrophoneRecorder? microphoneRecorder = null,
-        CompanionInteractionStateMachine? interactionStateMachine = null)
+        CompanionInteractionStateMachine? interactionStateMachine = null,
+        Func<string, CancellationToken, Task>? answerTranscriptAsync = null)
     {
+        this.answerTranscriptAsync = answerTranscriptAsync;
         this.interactionStateMachine = interactionStateMachine ?? new CompanionInteractionStateMachine(cursorOverlayManager.SetVoiceState);
         this.microphoneRecorder = microphoneRecorder ?? new MicrophoneRecorder();
         this.cursorOverlayManager = cursorOverlayManager;
@@ -101,9 +106,10 @@ internal sealed class PushToTalkDictation
         interactionStateMachine.Apply(CompanionInteractionTrigger.RecordingFinished);
         Stopwatch transcriptionStopwatch = Stopwatch.StartNew();
         string voiceNote;
+        string transcript = "";
         try
         {
-            string transcript = await speechToTextTranscriber.TranscribeAsync(recordedSamples, CancellationToken.None);
+            transcript = await speechToTextTranscriber.TranscribeAsync(recordedSamples, CancellationToken.None);
             Console.WriteLine($"Transcribed {recordedSeconds:0.0} s of audio in {transcriptionStopwatch.ElapsedMilliseconds} ms: \"{transcript}\"");
             voiceNote = transcript.Length == 0 ? "Didn't catch any words." : $"Heard: \"{transcript}\"";
         }
@@ -113,10 +119,15 @@ internal sealed class PushToTalkDictation
             voiceNote = $"Couldn't transcribe: {exception.Message}";
         }
 
-        if (thisDictationGeneration == dictationGeneration)
+        if (thisDictationGeneration != dictationGeneration) return;
+        if (transcript.Length > 0 && answerTranscriptAsync is not null)
         {
-            FinishWithNote(voiceNote);
+            showVoiceNote(voiceNote);
+            await answerTranscriptAsync(transcript, CancellationToken.None); // Ends Idle and schedules the transient hide itself.
+            return;
         }
+
+        FinishWithNote(voiceNote);
     }
 
     private void FinishWithNote(string? voiceNote)

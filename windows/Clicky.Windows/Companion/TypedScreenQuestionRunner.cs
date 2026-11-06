@@ -5,18 +5,22 @@ using Clicky.Windows.Configuration;
 using Clicky.Windows.Display;
 using Clicky.Windows.Overlay;
 using Clicky.Windows.ScreenCapture;
+using Clicky.Windows.Voice;
 
 namespace Clicky.Windows.Companion;
 
 /// <summary>
-/// Tray "Ask about my screen (typed)": the full answer path (capture -> route -> bubble -> point) without the voice pipeline,
-/// so each backend can be checked on its own. Runs on the UI thread, where the overlay manager and history live.
+/// One answer turn (capture -> route -> bubble -> point -> speak), shared by push-to-talk (after transcription) and the tray's
+/// "Ask about my screen (typed)" debug item. Runs on the UI thread, where the overlay manager and history live.
 /// </summary>
 internal sealed class TypedScreenQuestionRunner(
     CursorOverlayManager cursorOverlayManager, DisplayMonitorCatalog displayMonitorCatalog,
     ChatBackendRouter chatBackendRouter, CompanionConversationHistory conversationHistory,
-    CompanionInteractionStateMachine? interactionStateMachine = null)
+    CompanionInteractionStateMachine? interactionStateMachine = null, ITextToSpeechSpeaker? textToSpeechSpeaker = null)
 {
+    /// <summary>Spoken when a turn fails; the bubble carries the details.</summary>
+    internal const string SpokenErrorLine = "Sorry, I couldn't answer that. The details are on screen.";
+
     private readonly CompanionInteractionStateMachine interactionStateMachine =
         interactionStateMachine ?? new CompanionInteractionStateMachine(cursorOverlayManager.SetVoiceState);
     private bool isRunning;
@@ -30,53 +34,80 @@ internal sealed class TypedScreenQuestionRunner(
         if (userQuestion.Length == 0) return;
         // A voice turn that started while the box was open keeps the overlay; the typed question waits for another click.
         if (interactionStateMachine.CurrentState is CompanionVoiceState.Listening or CompanionVoiceState.Processing) return;
-        await AnswerAsync(userQuestion);
+        // Let the closed input box leave the compositor before it can end up in the screenshot.
+        await AnswerAsync(userQuestion, TimeSpan.FromMilliseconds(150));
     }
 
-    /// <summary>One full turn for <paramref name="userQuestion"/>; returns the text put in the bubble (reply or error).</summary>
-    internal async Task<string> AnswerAsync(string userQuestion)
+    /// <summary>
+    /// One full turn for <paramref name="userQuestion"/>; returns the text put in the bubble (reply or error). Ends Idle with
+    /// the transient hide scheduled, unless <paramref name="cancellationToken"/> fired (a new press owns the state then).
+    /// </summary>
+    internal async Task<string> AnswerAsync(string userQuestion, TimeSpan delayBeforeCapture = default,
+        CancellationToken cancellationToken = default)
     {
         isRunning = true;
         string bubbleText;
         cursorOverlayManager.ShowTransiently();
+        // A voice turn is already Processing (the trigger is ignored then); a typed one starts here.
         interactionStateMachine.Apply(CompanionInteractionTrigger.TypedQuestionAsked);
         try
         {
-            // Let the closed input box leave the compositor before it can end up in the screenshot.
-            await Task.Delay(150);
+            if (delayBeforeCapture > TimeSpan.Zero) await Task.Delay(delayBeforeCapture, cancellationToken);
             Stopwatch stopwatch = Stopwatch.StartNew();
             IReadOnlyList<CompanionScreenCapture> screenCaptures =
-                await CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, CancellationToken.None);
+                await CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, cancellationToken);
             TimeSpan captureDuration = stopwatch.Elapsed;
 
             RoutedChatResponse routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
                 CompanionScreenQuestion.BuildChatRequest(userQuestion, screenCaptures, conversationHistory.GetExchanges()),
-                CancellationToken.None);
-            Trace.WriteLine($"Typed question answered by {routedResponse.AnsweringBackendKind}: capture " +
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            Trace.WriteLine($"Question answered by {routedResponse.AnsweringBackendKind}: capture " +
                 $"{captureDuration.TotalMilliseconds:F0} ms, answer {(stopwatch.Elapsed - captureDuration).TotalMilliseconds:F0} ms.");
 
             conversationHistory.Record(userQuestion, routedResponse.ResponseText);
             PointingParseResult pointingParseResult = PointTagParser.ParsePointingCoordinates(routedResponse.ResponseText);
-            // Idle before pointing, like the Mac: the spinner would hide the triangle's flight.
-            interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
             bubbleText = pointingParseResult.SpokenText;
+            bool willSpeak = textToSpeechSpeaker is not null && bubbleText.Trim().Length > 0;
+            // Responding (or Idle) before pointing: both draw the triangle, which the spinner would hide during the flight.
+            interactionStateMachine.Apply(willSpeak ? CompanionInteractionTrigger.ReplyReady : CompanionInteractionTrigger.InteractionEnded);
             ShowFinishedResponse(bubbleText);
             if (CompanionScreenQuestion.ResolvePointTarget(pointingParseResult, screenCaptures) is { } pointTarget)
                 cursorOverlayManager.PointAt(pointTarget.X, pointTarget.Y, pointingParseResult.ElementLabel);
+            if (willSpeak) await textToSpeechSpeaker!.SpeakAsync(bubbleText, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            isRunning = false;
+            return ""; // Interrupted by a new press, which now owns the state and the overlay.
         }
         catch (Exception exception)
         {
-            Trace.TraceWarning($"Typed question failed: {exception}");
-            interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
+            Trace.TraceWarning($"Question failed: {exception}");
             bubbleText = $"Clicky couldn't answer: {exception.Message}";
+            interactionStateMachine.Apply(textToSpeechSpeaker is null
+                ? CompanionInteractionTrigger.InteractionEnded : CompanionInteractionTrigger.ReplyReady);
             ShowFinishedResponse(bubbleText);
+            if (textToSpeechSpeaker is not null) await SpeakErrorLineAsync(textToSpeechSpeaker, cancellationToken);
         }
-        finally
-        {
-            isRunning = false;
-            cursorOverlayManager.ScheduleTransientHide();
-        }
+
+        isRunning = false;
+        if (cancellationToken.IsCancellationRequested) return bubbleText;
+        interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
+        cursorOverlayManager.ScheduleTransientHide();
         return bubbleText;
+    }
+
+    private static async Task SpeakErrorLineAsync(ITextToSpeechSpeaker textToSpeechSpeaker, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await textToSpeechSpeaker.SpeakAsync(SpokenErrorLine, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            if (exception is not OperationCanceledException) Trace.TraceWarning($"Couldn't speak the error line: {exception.Message}");
+        }
     }
 
     private void ShowFinishedResponse(string responseText)

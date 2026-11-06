@@ -22,7 +22,8 @@ public class PushToTalkDictationTests
         public List<FakeWaveIn> CreatedWaveIns { get; } = [];
         public PushToTalkDictation PushToTalkDictation { get; }
 
-        public DictationHarness(Func<float[], Task<string>> transcribe, int inputDeviceCount = 1, bool raisesStoppedWhenStopped = true)
+        public DictationHarness(Func<float[], Task<string>> transcribe, int inputDeviceCount = 1, bool raisesStoppedWhenStopped = true,
+            Func<string, CancellationToken, Task>? answerTranscriptAsync = null)
         {
             CursorOverlayManager = new CursorOverlayManager(displayMonitorCatalog, isCursorAlwaysVisible: false);
             // The overlay also reports status when it fades in or out; keep only real voice-state changes (starting from Idle).
@@ -37,7 +38,7 @@ public class PushToTalkDictationTests
                 return fakeWaveIn;
             }, () => inputDeviceCount);
             PushToTalkDictation = new PushToTalkDictation(CursorOverlayManager, new FakeSpeechToTextTranscriber(transcribe),
-                VoiceNotes.Add, Dispatcher.CurrentDispatcher, microphoneRecorder);
+                VoiceNotes.Add, Dispatcher.CurrentDispatcher, microphoneRecorder, answerTranscriptAsync: answerTranscriptAsync);
         }
 
         public void Press() => StaTestThread.WaitFor(PushToTalkDictation.HandleShortcutTransition(PushToTalkShortcutTransition.Pressed));
@@ -72,6 +73,34 @@ public class PushToTalkDictationTests
         Assert.Equal(["Heard: \"what is this button\""], harness.VoiceNotes);
         Assert.Equal(spokenSamples.Length, transcribedSamples!.Length);
         Assert.True(harness.CreatedWaveIns.Single().IsDisposed);
+    });
+
+    [Fact]
+    public void Transcript_IsHandedToTheAnswerStep_WhichOwnsTheRestOfTheTurn() => StaTestThread.Run(() =>
+    {
+        List<string> answeredTranscripts = [];
+        using DictationHarness harness = new(_ => Task.FromResult("where is save"),
+            answerTranscriptAsync: (transcript, _) => { answeredTranscripts.Add(transcript); return Task.CompletedTask; });
+
+        harness.SpeakAndRelease(VoiceTestAudio.Tone(1, 0.3f));
+
+        Assert.Equal(["where is save"], answeredTranscripts);
+        Assert.Equal(["Heard: \"where is save\""], harness.VoiceNotes);
+        // The answer step (faked here) moves on from Processing; dictation doesn't end the turn itself.
+        Assert.Equal([CompanionVoiceState.Listening, CompanionVoiceState.Processing], harness.VoiceStates);
+    });
+
+    [Fact]
+    public void EmptyTranscript_ReturnsToIdle_WithoutAnswering() => StaTestThread.Run(() =>
+    {
+        bool wasAnswered = false;
+        using DictationHarness harness = new(_ => Task.FromResult(""),
+            answerTranscriptAsync: (_, _) => { wasAnswered = true; return Task.CompletedTask; });
+
+        harness.SpeakAndRelease(VoiceTestAudio.Tone(1, 0.3f));
+
+        Assert.False(wasAnswered);
+        Assert.Equal([CompanionVoiceState.Listening, CompanionVoiceState.Processing, CompanionVoiceState.Idle], harness.VoiceStates);
     });
 
     [Fact]

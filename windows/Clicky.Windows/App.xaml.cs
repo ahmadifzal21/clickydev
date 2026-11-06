@@ -64,10 +64,15 @@ public partial class App : Application
         textToSpeechSpeaker.StatusChanged += status => Dispatcher.BeginInvoke(() => companionPanelWindow.SetVoiceNote(status));
         textToSpeechSpeaker.Prepare(clickyConfigurationStore.CurrentConfiguration.Voice);
         clickyConfigurationStore.ConfigurationChanged += ApplyVoiceSettings;
-        // One owner for the voice state, shared by the push-to-talk and typed-question paths.
+        // One owner for the voice state and one answer path, shared by push-to-talk and the typed question.
         CompanionInteractionStateMachine companionInteractionStateMachine = new(cursorOverlayManager.SetVoiceState);
+        TypedScreenQuestionRunner typedScreenQuestionRunner = new(cursorOverlayManager, displayMonitorCatalog,
+            TypedScreenQuestionRunner.CreateRouter(clickyConfigurationStore), new CompanionConversationHistory(),
+            companionInteractionStateMachine, textToSpeechSpeaker);
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
-            companionPanelWindow.SetVoiceNote, Dispatcher, interactionStateMachine: companionInteractionStateMachine);
+            companionPanelWindow.SetVoiceNote, Dispatcher, interactionStateMachine: companionInteractionStateMachine,
+            answerTranscriptAsync: (transcript, cancellationToken) =>
+                typedScreenQuestionRunner.AnswerAsync(transcript, cancellationToken: cancellationToken));
 
         // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
         PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
@@ -88,9 +93,6 @@ public partial class App : Application
         clickyConfigurationStore.ConfigurationChanged += ApplyPushToTalkShortcutSetting;
 
         PointingTestTour pointingTestTour = new(cursorOverlayManager, displayMonitorCatalog);
-        TypedScreenQuestionRunner typedScreenQuestionRunner = new(cursorOverlayManager, displayMonitorCatalog,
-            TypedScreenQuestionRunner.CreateRouter(clickyConfigurationStore), new CompanionConversationHistory(),
-            companionInteractionStateMachine);
         trayContextMenu = new TrayContextMenu(clickyConfigurationStore, askAboutScreenRequested: typedScreenQuestionRunner.Run,
             testPointingRequested: pointingTestTour.Run, speakTestLineRequested: SpeakTestLine,
             saveDebugScreenshotsRequested: SaveDebugScreenshots, quitRequested: Shutdown);

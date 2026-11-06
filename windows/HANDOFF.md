@@ -55,7 +55,7 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
 
 ## Current ticket
 
-**E8 T8.2** (voice pipeline) — not started. T8.1 done.
+**E8 T8.3** (interrupt) — not started. T8.2 done.
 
 ## Ticket log (newest last)
 
@@ -292,7 +292,15 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
   `Apply` returns false. App shares one instance between `PushToTalkDictation` and `TypedScreenQuestionRunner` (both default
   to their own when constructed alone, so existing tests are unchanged); the typed question is skipped while a voice turn
   is listening/processing. Pure table tested (17 cases).
+- T8.2 done: push-to-talk release -> transcribe -> `TypedScreenQuestionRunner.AnswerAsync` (now the shared answer step, given the
+  shared state machine + speaker): capture -> route job Answer with history -> Responding (triangle stays visible for the
+  flight) -> bubble + PointAt -> speak the tag-stripped reply -> Idle + transient hide (scheduled after speech, so a long reply
+  isn't cut off). Empty transcript -> Idle, no backend call. Errors: "Clicky couldn't answer: ..." in the bubble and a short
+  spoken line (`SpokenErrorLine`). `AnswerAsync` takes a CancellationToken (passed into capture, router and speech; a cancelled
+  turn leaves the state to the new press) — T8.3 supplies it. Transcription errors still go to the panel note only.
+  Tests: `ScreenQuestionAnswerTests` (real capture/overlay, fake backend + speaker) and 2 dictation hand-off tests. Smoke: app starts.
 
 ## Tracker sync pending
 
 - E8 T8.1 -> testing
+- E8 T8.2 -> testing
