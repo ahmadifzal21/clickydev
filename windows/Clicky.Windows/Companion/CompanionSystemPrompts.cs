@@ -4,7 +4,8 @@ namespace Clicky.Windows.Companion;
 /// System prompts copied verbatim from CompanionManager.swift. They're kept identical
 /// to the Mac app on purpose so both platforms behave the same and the
 /// [POINT:x,y:label:screenN] contract stays in sync with PointTagParser.
-/// To change one, change the Swift source too.
+/// To change one, change the Swift source too. One Windows-only addition: the "walkthroughs" paragraph at the end of the voice
+/// prompt (E10 T10.5), which the Mac doesn't have yet; the one-tag reply it describes first is unchanged.
 /// </summary>
 public static class CompanionSystemPrompts
 {
@@ -46,6 +47,15 @@ public static class CompanionSystemPrompts
         - user asks what html is: "html stands for hypertext markup language, it's basically the skeleton of every web page. curious how it connects to the css you're looking at? [POINT:none]"
         - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
         - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
+
+        walkthroughs:
+        when the answer takes a few steps on screen (open this menu, then click that button), put each step on its own line and end each line with its own coordinate tag, so the cursor moves to each thing as you say it. at most four steps. each line is still spoken, so keep writing natural speech, not a numbered list. a one-step answer stays as above: one line, one tag at the end.
+
+        example:
+        - user asks how to export a pdf from word:
+        "first, open the file menu up in the top left. [POINT:24,12:file menu]
+        then pick export from the list on the left. [POINT:60,410:export]
+        and hit create pdf, it'll ask you where to save it. [POINT:520,300:create pdf]"
         """;
 
     /// <summary>

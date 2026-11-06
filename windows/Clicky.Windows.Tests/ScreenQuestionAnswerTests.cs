@@ -223,6 +223,69 @@ public class ScreenQuestionAnswerTests
             Action<string>? onTextDelta = null) => innerBackend.GetResponseTextAsync(companionChatRequest, cancellationToken, onTextDelta);
     }
 
+    private static (string BubbleText, FakeSpeaker Speaker, List<string> PointedLabels) RunReply(string reply, bool withSpeaker = true)
+    {
+        string bubbleText = "";
+        FakeSpeaker speaker = new();
+        List<string> pointedLabels = [];
+        StaTestThread.Run(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            ChatBackendRouter router = new(() => new JobBackendRouting { Answer = ChatBackendKind.ClaudeCodeCli, Fallback = null },
+                [new FakeBackend(_ => Task.FromResult(reply))]);
+            TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, new CompanionConversationHistory(),
+                textToSpeechSpeaker: withSpeaker ? speaker : null);
+            Task<string> answerTask = runner.AnswerAsync("how do i export a pdf");
+            StaTestThread.WaitFor(answerTask);
+            bubbleText = answerTask.Result;
+            pointedLabels.AddRange(runner.TurnEventLog.ReadAfter(0)
+                .Where(turnEvent => turnEvent.Kind == CompanionTurnEventKind.Pointed).Select(turnEvent => turnEvent.Text));
+        });
+        return (bubbleText, speaker, pointedLabels);
+    }
+
+    [Fact]
+    public void Walkthrough_PointsAtEachStep_AsThatStepIsSpoken()
+    {
+        (string bubbleText, FakeSpeaker speaker, List<string> pointedLabels) = RunReply(
+            "first, open the file menu. [POINT:24,12:file menu]\nthen pick export. [POINT:60,410:export]\nand hit create pdf. [POINT:520,300:create pdf]");
+
+        Assert.Equal(["first, open the file menu.", "then pick export.", "and hit create pdf."], speaker.SpokenTexts);
+        Assert.Equal(["file menu", "export", "create pdf"], pointedLabels);
+        Assert.Equal("first, open the file menu.\nthen pick export.\nand hit create pdf.", bubbleText);
+    }
+
+    [Fact]
+    public void ClassicReply_WithOneTagAtTheEnd_PointsOnce()
+    {
+        (string bubbleText, FakeSpeaker speaker, List<string> pointedLabels) = RunReply(
+            "you'll want the color inspector up top. click it to get the color wheels. [POINT:1100,42:color inspector]");
+
+        Assert.Equal(["you'll want the color inspector up top.", "click it to get the color wheels."], speaker.SpokenTexts);
+        Assert.Equal(["color inspector"], pointedLabels);
+        Assert.Equal("you'll want the color inspector up top. click it to get the color wheels.", bubbleText);
+    }
+
+    [Fact]
+    public void WithoutSpeech_TheCursorGoesToTheLastTarget()
+    {
+        (_, _, List<string> pointedLabels) = RunReply(
+            "open file. [POINT:24,12:file menu]\nthen export. [POINT:60,410:export]", withSpeaker: false);
+
+        Assert.Equal(["export"], pointedLabels);
+    }
+
+    [Fact]
+    public void PointNone_PointsNowhere_AndIsNotSpoken()
+    {
+        (string bubbleText, FakeSpeaker speaker, List<string> pointedLabels) = RunReply("html is the skeleton of a web page. [POINT:none]");
+
+        Assert.Equal(["html is the skeleton of a web page."], speaker.SpokenTexts);
+        Assert.Empty(pointedLabels);
+        Assert.Equal("html is the skeleton of a web page.", bubbleText);
+    }
+
     private static CompanionScreenCapture FakePressCapture()
     {
         PixelRect bounds = new(0, 0, 1920, 1080);
