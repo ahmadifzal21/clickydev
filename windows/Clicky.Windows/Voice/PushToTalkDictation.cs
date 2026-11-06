@@ -20,10 +20,13 @@ internal sealed class PushToTalkDictation
     private readonly CompanionInteractionStateMachine interactionStateMachine;
 
     /// <summary>
-    /// Answers a non-empty transcript (capture, backend, speech, pointing), adding its stages to the turn's timeline and logging
-    /// it; null = dictation only (E6 behaviour).
+    /// Answers a non-empty transcript (capture, backend, speech, pointing) as the given turn of the event log; null = dictation
+    /// only (E6 behaviour).
     /// </summary>
-    private readonly Func<string, TurnTimeline, CancellationToken, Task>? answerTranscriptAsync;
+    private readonly Func<string, int, CancellationToken, Task>? answerTranscriptAsync;
+
+    /// <summary>Each release starts a turn here (its clock starts at the release); the transcript is its first stage.</summary>
+    private readonly CompanionTurnEventLog turnEventLog;
 
     /// <summary>Bumped on every press, so a slow transcription from an earlier press can't overwrite a newer state.</summary>
     private int dictationGeneration;
@@ -31,8 +34,9 @@ internal sealed class PushToTalkDictation
     public PushToTalkDictation(CursorOverlayManager cursorOverlayManager, ISpeechToTextTranscriber speechToTextTranscriber,
         Action<string> showVoiceNote, Dispatcher dispatcher, MicrophoneRecorder? microphoneRecorder = null,
         CompanionInteractionStateMachine? interactionStateMachine = null,
-        Func<string, TurnTimeline, CancellationToken, Task>? answerTranscriptAsync = null)
+        Func<string, int, CancellationToken, Task>? answerTranscriptAsync = null, CompanionTurnEventLog? turnEventLog = null)
     {
+        this.turnEventLog = turnEventLog ?? new CompanionTurnEventLog();
         this.answerTranscriptAsync = answerTranscriptAsync;
         this.interactionStateMachine = interactionStateMachine ?? new CompanionInteractionStateMachine(cursorOverlayManager.SetVoiceState);
         this.microphoneRecorder = microphoneRecorder ?? new MicrophoneRecorder();
@@ -84,55 +88,64 @@ internal sealed class PushToTalkDictation
         }
 
         int thisDictationGeneration = dictationGeneration;
-        TurnTimeline turnTimeline = new("release");
-        float[] recordedSamples = await microphoneRecorder.StopAsync();
-        if (thisDictationGeneration != dictationGeneration)
-        {
-            return; // Pressed again while the device was closing; the new recording owns the state.
-        }
-
-        double recordedSeconds = (double)recordedSamples.Length / SpeechClip.SampleRateHertz;
-
-        switch (SpeechClip.GetRejection(recordedSamples))
-        {
-            case SpeechClipRejection.TooShort:
-                FinishWithNote(null); // An accidental tap; stay quiet.
-                return;
-            case SpeechClipRejection.AllZeroSamples:
-                FinishWithNote(MicrophonePrivacy.GetBlockedMessage()
-                    ?? "The microphone sent only silence. It may be muted, or " + MicrophonePrivacy.FixInstructions);
-                return;
-            case SpeechClipRejection.Silent:
-                FinishWithNote("Didn't hear anything. Is the right microphone selected and unmuted?");
-                return;
-        }
-
-        interactionStateMachine.Apply(CompanionInteractionTrigger.RecordingFinished);
-        Stopwatch transcriptionStopwatch = Stopwatch.StartNew();
-        string voiceNote;
-        string transcript = "";
+        int turnId = turnEventLog.StartTurn("release");
+        bool isAnswering = false;
         try
         {
-            transcript = await speechToTextTranscriber.TranscribeAsync(recordedSamples, CancellationToken.None);
-            turnTimeline.Mark("transcript");
-            Console.WriteLine($"Transcribed {recordedSeconds:0.0} s of audio in {transcriptionStopwatch.ElapsedMilliseconds} ms: \"{transcript}\"");
-            voiceNote = transcript.Length == 0 ? "Didn't catch any words." : $"Heard: \"{transcript}\"";
-        }
-        catch (Exception exception)
-        {
-            Console.WriteLine($"Transcription failed: {exception}");
-            voiceNote = $"Couldn't transcribe: {exception.Message}";
-        }
+            float[] recordedSamples = await microphoneRecorder.StopAsync();
+            if (thisDictationGeneration != dictationGeneration)
+            {
+                return; // Pressed again while the device was closing; the new recording owns the state.
+            }
 
-        if (thisDictationGeneration != dictationGeneration) return;
-        if (transcript.Length > 0 && answerTranscriptAsync is not null)
-        {
-            showVoiceNote(voiceNote);
-            await answerTranscriptAsync(transcript, turnTimeline, CancellationToken.None); // Ends Idle and schedules the transient hide itself.
-            return;
-        }
+            double recordedSeconds = (double)recordedSamples.Length / SpeechClip.SampleRateHertz;
 
-        FinishWithNote(voiceNote);
+            switch (SpeechClip.GetRejection(recordedSamples))
+            {
+                case SpeechClipRejection.TooShort:
+                    FinishWithNote(null); // An accidental tap; stay quiet.
+                    return;
+                case SpeechClipRejection.AllZeroSamples:
+                    FinishWithNote(MicrophonePrivacy.GetBlockedMessage()
+                        ?? "The microphone sent only silence. It may be muted, or " + MicrophonePrivacy.FixInstructions);
+                    return;
+                case SpeechClipRejection.Silent:
+                    FinishWithNote("Didn't hear anything. Is the right microphone selected and unmuted?");
+                    return;
+            }
+
+            interactionStateMachine.Apply(CompanionInteractionTrigger.RecordingFinished);
+            Stopwatch transcriptionStopwatch = Stopwatch.StartNew();
+            string voiceNote;
+            string transcript = "";
+            try
+            {
+                transcript = await speechToTextTranscriber.TranscribeAsync(recordedSamples, CancellationToken.None);
+                turnEventLog.Append(turnId, CompanionTurnEventKind.TranscriptReady, transcript);
+                Console.WriteLine($"Transcribed {recordedSeconds:0.0} s of audio in {transcriptionStopwatch.ElapsedMilliseconds} ms: \"{transcript}\"");
+                voiceNote = transcript.Length == 0 ? "Didn't catch any words." : $"Heard: \"{transcript}\"";
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"Transcription failed: {exception}");
+                voiceNote = $"Couldn't transcribe: {exception.Message}";
+            }
+
+            if (thisDictationGeneration != dictationGeneration) return;
+            if (transcript.Length > 0 && answerTranscriptAsync is not null)
+            {
+                showVoiceNote(voiceNote);
+                isAnswering = true; // The answer ends the turn in the log.
+                await answerTranscriptAsync(transcript, turnId, CancellationToken.None); // Ends Idle and schedules the transient hide itself.
+                return;
+            }
+
+            FinishWithNote(voiceNote);
+        }
+        finally
+        {
+            if (!isAnswering) turnEventLog.Append(turnId, CompanionTurnEventKind.TurnEnded);
+        }
     }
 
     private void FinishWithNote(string? voiceNote)

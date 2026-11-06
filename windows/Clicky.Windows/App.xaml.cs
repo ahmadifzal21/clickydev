@@ -35,6 +35,7 @@ public partial class App : Application
     private ISpeechToTextTranscriber? speechToTextTranscriber;
     private PushToTalkDictation? pushToTalkDictation;
     private ITextToSpeechSpeaker? textToSpeechSpeaker;
+    private readonly CancellationTokenSource appExitCancellation = new();
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -73,11 +74,13 @@ public partial class App : Application
         TypedScreenQuestionRunner typedScreenQuestionRunner = new(cursorOverlayManager, displayMonitorCatalog,
             TypedScreenQuestionRunner.CreateRouter(clickyConfigurationStore), new CompanionConversationHistory(),
             companionInteractionStateMachine, textToSpeechSpeaker);
+        _ = ShowAnswersInPanelAsync(typedScreenQuestionRunner.TurnEventLog.Follow(0, appExitCancellation.Token));
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
             companionPanelWindow.SetVoiceNote, Dispatcher, interactionStateMachine: companionInteractionStateMachine,
-            answerTranscriptAsync: (transcript, turnTimeline, cancellationToken) =>
-                typedScreenQuestionRunner.AnswerAsync(transcript, callerCancellationToken: cancellationToken, turnTimeline: turnTimeline,
-                    screenCapturesTask: typedScreenQuestionRunner.TakeCaptureFromPress()));
+            answerTranscriptAsync: (transcript, turnId, cancellationToken) =>
+                typedScreenQuestionRunner.AnswerAsync(transcript, callerCancellationToken: cancellationToken, turnId: turnId,
+                    screenCapturesTask: typedScreenQuestionRunner.TakeCaptureFromPress()),
+            turnEventLog: typedScreenQuestionRunner.TurnEventLog);
 
         // An invalid shortcut falls back to ctrl+alt (TryParse's out value); the panel explains why.
         PushToTalkShortcut.TryParse(clickyConfigurationStore.CurrentConfiguration.PushToTalkShortcut, out PushToTalkShortcut pushToTalkShortcut);
@@ -182,8 +185,24 @@ public partial class App : Application
         pushToTalkKeyboardHook?.ChangeShortcut(pushToTalkShortcut);
     }
 
+    /// <summary>The panel follows the turn event log (from the start, so nothing is missed) and shows how each turn ended.</summary>
+    private async Task ShowAnswersInPanelAsync(System.Threading.Channels.ChannelReader<CompanionTurnEvent> turnEvents)
+    {
+        try
+        {
+            await foreach (CompanionTurnEvent turnEvent in turnEvents.ReadAllAsync())
+            {
+                if (CompanionPanelText.GetTurnNote(turnEvent) is { } turnNote) companionPanelWindow?.SetVoiceNote(turnNote);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
     protected override void OnExit(ExitEventArgs exitEventArgs)
     {
+        appExitCancellation.Cancel();
         // Tray icon first: Dispose hides it, so no ghost icon is left behind.
         trayIconManager?.Dispose();
         trayContextMenu?.Dispose();

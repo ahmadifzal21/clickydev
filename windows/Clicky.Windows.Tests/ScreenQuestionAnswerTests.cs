@@ -97,7 +97,7 @@ public class ScreenQuestionAnswerTests
         });
 
     [Fact]
-    public void Turn_AddsItsStagesToTheTimeline_InOrder() =>
+    public void Turn_AppendsItsStagesToTheEventLog_InOrder() =>
         StaTestThread.Run(() =>
         {
             using DisplayMonitorCatalog displayMonitorCatalog = new();
@@ -105,15 +105,20 @@ public class ScreenQuestionAnswerTests
             FakeSpeaker speaker = new();
             ChatBackendRouter router = new(() => new JobBackendRouting { Answer = ChatBackendKind.ClaudeCodeCli, Fallback = null },
                 [new FakeBackend(_ => Task.FromResult("over there. [POINT:none]"))]);
+            CompanionTurnEventLog turnEventLog = new();
             TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, new CompanionConversationHistory(),
-                textToSpeechSpeaker: speaker);
-            TurnTimeline turnTimeline = new("release");
-            turnTimeline.Mark("transcript");
+                textToSpeechSpeaker: speaker, turnEventLog: turnEventLog);
+            int turnId = turnEventLog.StartTurn("release");
+            turnEventLog.Append(turnId, CompanionTurnEventKind.TranscriptReady, "where is it");
 
-            StaTestThread.WaitFor(runner.AnswerAsync("where is it", turnTimeline: turnTimeline));
+            StaTestThread.WaitFor(runner.AnswerAsync("where is it", turnId: turnId));
 
-            Assert.Matches(@"^Turn timing from release: transcript [\d.]+ s, capture [\d.]+ s, answer [\d.]+ s, first sound [\d.]+ s, done [\d.]+ s$",
-                turnTimeline.Describe());
+            Assert.Equal([CompanionTurnEventKind.TurnStarted, CompanionTurnEventKind.TranscriptReady, CompanionTurnEventKind.CaptureDone,
+                    CompanionTurnEventKind.ReplyReady, CompanionTurnEventKind.SpeechStarted, CompanionTurnEventKind.TurnEnded],
+                turnEventLog.ReadTurn(turnId).Select(turnEvent => turnEvent.Kind));
+            Assert.Equal("over there. [POINT:none]", turnEventLog.ReadTurn(turnId)[3].Text);
+            Assert.Matches(@"^Turn 1 timing from release: transcript [\d.]+ s, capture [\d.]+ s, answer [\d.]+ s, first sound [\d.]+ s, done [\d.]+ s$",
+                CompanionTurnTiming.Describe(turnEventLog.ReadTurn(turnId)));
         });
 
     private static CompanionScreenCapture FakePressCapture()

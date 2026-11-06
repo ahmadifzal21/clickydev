@@ -16,8 +16,12 @@ namespace Clicky.Windows.Companion;
 internal sealed class TypedScreenQuestionRunner(
     CursorOverlayManager cursorOverlayManager, DisplayMonitorCatalog displayMonitorCatalog,
     ChatBackendRouter chatBackendRouter, CompanionConversationHistory conversationHistory,
-    CompanionInteractionStateMachine? interactionStateMachine = null, ITextToSpeechSpeaker? textToSpeechSpeaker = null)
+    CompanionInteractionStateMachine? interactionStateMachine = null, ITextToSpeechSpeaker? textToSpeechSpeaker = null,
+    CompanionTurnEventLog? turnEventLog = null)
 {
+    /// <summary>Every turn's stages go here; the timing line and the panel read them back.</summary>
+    public CompanionTurnEventLog TurnEventLog { get; } = turnEventLog ?? new CompanionTurnEventLog();
+
     /// <summary>Spoken when a turn fails; the bubble carries the details.</summary>
     internal const string SpokenErrorLine = "Sorry, I couldn't answer that. The details are on screen.";
 
@@ -78,16 +82,17 @@ internal sealed class TypedScreenQuestionRunner(
     /// <summary>
     /// One full turn for <paramref name="userQuestion"/>; returns the text put in the bubble (reply or error). Ends Idle with
     /// the transient hide scheduled, unless <paramref name="cancellationToken"/> fired (a new press owns the state then).
-    /// The turn's stages are added to <paramref name="turnTimeline"/> (a voice turn's starts at the key release) and logged.
+    /// The stages are appended to <see cref="TurnEventLog"/> as turn <paramref name="turnId"/> (a voice turn, started at the key
+    /// release), or as a new turn starting now; the turn's timing line is logged at the end.
     /// <paramref name="screenCapturesTask"/> is a capture already started (at the key press); without one the turn captures now.
     /// </summary>
     internal async Task<string> AnswerAsync(string userQuestion, TimeSpan delayBeforeCapture = default,
-        CancellationToken callerCancellationToken = default, TurnTimeline? turnTimeline = null,
+        CancellationToken callerCancellationToken = default, int? turnId = null,
         Task<IReadOnlyList<CompanionScreenCapture>>? screenCapturesTask = null)
     {
-        turnTimeline ??= new TurnTimeline("question");
-        Action markFirstSound = () => turnTimeline.Mark("first sound");
-        if (textToSpeechSpeaker is not null) textToSpeechSpeaker.SoundStarted += markFirstSound;
+        int thisTurnId = turnId ?? TurnEventLog.StartTurn("question");
+        Action logFirstSound = () => TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.SpeechStarted);
+        if (textToSpeechSpeaker is not null) textToSpeechSpeaker.SoundStarted += logFirstSound;
         isRunning = true;
         string bubbleText;
         currentAnswerCancellation?.Cancel(); // Only one turn at a time; the newest wins.
@@ -100,20 +105,17 @@ internal sealed class TypedScreenQuestionRunner(
         try
         {
             if (delayBeforeCapture > TimeSpan.Zero) await Task.Delay(delayBeforeCapture, cancellationToken);
-            Stopwatch stopwatch = Stopwatch.StartNew();
             IReadOnlyList<CompanionScreenCapture> screenCaptures = await (screenCapturesTask
                 ?? CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, cancellationToken))
                 .WaitAsync(cancellationToken);
-            TimeSpan captureDuration = stopwatch.Elapsed;
-            turnTimeline.Mark("capture");
+            TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.CaptureDone);
 
             RoutedChatResponse routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
                 CompanionScreenQuestion.BuildChatRequest(userQuestion, screenCaptures, conversationHistory.GetExchanges()),
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            turnTimeline.Mark("answer");
-            Trace.WriteLine($"Question answered by {routedResponse.AnsweringBackendKind}: capture " +
-                $"{captureDuration.TotalMilliseconds:F0} ms, answer {(stopwatch.Elapsed - captureDuration).TotalMilliseconds:F0} ms.");
+            TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.ReplyReady, routedResponse.ResponseText);
+            Trace.WriteLine($"Question answered by {routedResponse.AnsweringBackendKind}.");
 
             conversationHistory.Record(userQuestion, routedResponse.ResponseText);
             PointingParseResult pointingParseResult = PointTagParser.ParsePointingCoordinates(routedResponse.ResponseText);
@@ -126,29 +128,30 @@ internal sealed class TypedScreenQuestionRunner(
             {
                 Trace.WriteLine($"Pointing at \"{pointingParseResult.ElementLabel}\" ({pointTarget.X}, {pointTarget.Y}) physical px.");
                 cursorOverlayManager.PointAt(pointTarget.X, pointTarget.Y, pointingParseResult.ElementLabel);
+                TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.Pointed, pointingParseResult.ElementLabel ?? "");
             }
             if (willSpeak) await textToSpeechSpeaker!.SpeakAsync(bubbleText, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             bubbleText = ""; // Interrupted by a new press, which now owns the state and the overlay.
-            turnTimeline.Mark("cancelled");
+            TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.Cancelled);
             Trace.WriteLine("Answer cancelled by a new press.");
         }
         catch (Exception exception)
         {
             Trace.TraceWarning($"Question failed: {exception}");
-            turnTimeline.Mark("failed");
             bubbleText = $"Clicky couldn't answer: {exception.Message}";
+            TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.Failed, bubbleText);
             interactionStateMachine.Apply(textToSpeechSpeaker is null
                 ? CompanionInteractionTrigger.InteractionEnded : CompanionInteractionTrigger.ReplyReady);
             ShowFinishedResponse(bubbleText);
             if (textToSpeechSpeaker is not null) await SpeakErrorLineAsync(textToSpeechSpeaker, cancellationToken);
         }
 
-        if (textToSpeechSpeaker is not null) textToSpeechSpeaker.SoundStarted -= markFirstSound;
-        turnTimeline.Mark("done");
-        Trace.WriteLine(turnTimeline.Describe());
+        if (textToSpeechSpeaker is not null) textToSpeechSpeaker.SoundStarted -= logFirstSound;
+        TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.TurnEnded);
+        Trace.WriteLine(CompanionTurnTiming.Describe(TurnEventLog.ReadTurn(thisTurnId)));
         if (currentAnswerCancellation == answerCancellation)
         {
             currentAnswerCancellation = null;

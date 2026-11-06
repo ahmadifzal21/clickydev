@@ -155,9 +155,8 @@ public sealed class LiveBackendVerificationTests(ITestOutputHelper output)
                 {
                     TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router,
                         new CompanionConversationHistory(), textToSpeechSpeaker: kokoroLocalSpeaker);
-                    TurnTimeline turnTimeline = new("question");
-                    string bubbleText = WaitFor(runner.AnswerAsync(question, turnTimeline: turnTimeline));
-                    output.WriteLine($"{backendKind} | {turnTimeline.Describe()} | {bubbleText}");
+                    string bubbleText = WaitFor(runner.AnswerAsync(question));
+                    output.WriteLine($"{backendKind} | {CompanionTurnTiming.Describe(runner.TurnEventLog.ReadAfter(0))} | {bubbleText}");
                 }
             }
             finally

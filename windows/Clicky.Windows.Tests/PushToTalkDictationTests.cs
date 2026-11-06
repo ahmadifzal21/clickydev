@@ -23,7 +23,7 @@ public class PushToTalkDictationTests
         public PushToTalkDictation PushToTalkDictation { get; }
 
         public DictationHarness(Func<float[], Task<string>> transcribe, int inputDeviceCount = 1, bool raisesStoppedWhenStopped = true,
-            Func<string, TurnTimeline, CancellationToken, Task>? answerTranscriptAsync = null)
+            Func<string, int, CancellationToken, Task>? answerTranscriptAsync = null)
         {
             CursorOverlayManager = new CursorOverlayManager(displayMonitorCatalog, isCursorAlwaysVisible: false);
             // The overlay also reports status when it fades in or out; keep only real voice-state changes (starting from Idle).

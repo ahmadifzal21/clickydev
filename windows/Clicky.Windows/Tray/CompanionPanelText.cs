@@ -26,6 +26,17 @@ internal static class CompanionPanelText
     /// "Ready" while the cursor overlay is hidden, otherwise the voice state. The Mac says
     /// "Processing"; the Windows tickets call that state "Thinking", which reads better to a user.
     /// </summary>
+    /// <summary>
+    /// The panel's note for a turn event it shows (it follows the turn event log), or null to leave the note as it is. Answers
+    /// replace "Heard: …" so reopening the panel shows how the last turn ended.
+    /// </summary>
+    public static string? GetTurnNote(CompanionTurnEvent turnEvent) => turnEvent.Kind switch
+    {
+        CompanionTurnEventKind.ReplyReady => "Answered: " + PointTagParser.ParsePointingCoordinates(turnEvent.Text).SpokenText.Trim(),
+        CompanionTurnEventKind.Failed => turnEvent.Text,
+        _ => null
+    };
+
     public static string GetStatusText(bool isCursorOverlayVisible, CompanionVoiceState voiceState)
     {
         if (!isCursorOverlayVisible)
