@@ -17,13 +17,16 @@ internal sealed class PushToTalkDictation
     private readonly ISpeechToTextTranscriber speechToTextTranscriber;
     private readonly Action<string> showVoiceNote;
     private readonly MicrophoneRecorder microphoneRecorder;
+    private readonly CompanionInteractionStateMachine interactionStateMachine;
 
     /// <summary>Bumped on every press, so a slow transcription from an earlier press can't overwrite a newer state.</summary>
     private int dictationGeneration;
 
     public PushToTalkDictation(CursorOverlayManager cursorOverlayManager, ISpeechToTextTranscriber speechToTextTranscriber,
-        Action<string> showVoiceNote, Dispatcher dispatcher, MicrophoneRecorder? microphoneRecorder = null)
+        Action<string> showVoiceNote, Dispatcher dispatcher, MicrophoneRecorder? microphoneRecorder = null,
+        CompanionInteractionStateMachine? interactionStateMachine = null)
     {
+        this.interactionStateMachine = interactionStateMachine ?? new CompanionInteractionStateMachine(cursorOverlayManager.SetVoiceState);
         this.microphoneRecorder = microphoneRecorder ?? new MicrophoneRecorder();
         this.cursorOverlayManager = cursorOverlayManager;
         this.speechToTextTranscriber = speechToTextTranscriber;
@@ -62,7 +65,7 @@ internal sealed class PushToTalkDictation
             return;
         }
 
-        cursorOverlayManager.SetVoiceState(CompanionVoiceState.Listening);
+        interactionStateMachine.Apply(CompanionInteractionTrigger.ShortcutPressed);
     }
 
     private async Task StopRecordingAndTranscribeAsync()
@@ -95,7 +98,7 @@ internal sealed class PushToTalkDictation
                 return;
         }
 
-        cursorOverlayManager.SetVoiceState(CompanionVoiceState.Processing);
+        interactionStateMachine.Apply(CompanionInteractionTrigger.RecordingFinished);
         Stopwatch transcriptionStopwatch = Stopwatch.StartNew();
         string voiceNote;
         try
@@ -124,7 +127,7 @@ internal sealed class PushToTalkDictation
             showVoiceNote(voiceNote);
         }
 
-        cursorOverlayManager.SetVoiceState(CompanionVoiceState.Idle);
+        interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
         cursorOverlayManager.ScheduleTransientHide();
     }
 }

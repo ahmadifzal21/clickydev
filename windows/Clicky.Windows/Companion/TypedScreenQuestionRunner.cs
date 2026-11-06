@@ -14,8 +14,11 @@ namespace Clicky.Windows.Companion;
 /// </summary>
 internal sealed class TypedScreenQuestionRunner(
     CursorOverlayManager cursorOverlayManager, DisplayMonitorCatalog displayMonitorCatalog,
-    ChatBackendRouter chatBackendRouter, CompanionConversationHistory conversationHistory)
+    ChatBackendRouter chatBackendRouter, CompanionConversationHistory conversationHistory,
+    CompanionInteractionStateMachine? interactionStateMachine = null)
 {
+    private readonly CompanionInteractionStateMachine interactionStateMachine =
+        interactionStateMachine ?? new CompanionInteractionStateMachine(cursorOverlayManager.SetVoiceState);
     private bool isRunning;
 
     /// <summary>Asks for a question, answers it; clicks while a question is in flight are ignored.</summary>
@@ -25,6 +28,8 @@ internal sealed class TypedScreenQuestionRunner(
         // shortcut: a modal VB InputBox is enough for a debug entry point; build a styled box if this ever ships to users.
         string userQuestion = Microsoft.VisualBasic.Interaction.InputBox("Ask Clicky about your screen:", "Clicky").Trim();
         if (userQuestion.Length == 0) return;
+        // A voice turn that started while the box was open keeps the overlay; the typed question waits for another click.
+        if (interactionStateMachine.CurrentState is CompanionVoiceState.Listening or CompanionVoiceState.Processing) return;
         await AnswerAsync(userQuestion);
     }
 
@@ -34,7 +39,7 @@ internal sealed class TypedScreenQuestionRunner(
         isRunning = true;
         string bubbleText;
         cursorOverlayManager.ShowTransiently();
-        cursorOverlayManager.SetVoiceState(CompanionVoiceState.Processing);
+        interactionStateMachine.Apply(CompanionInteractionTrigger.TypedQuestionAsked);
         try
         {
             // Let the closed input box leave the compositor before it can end up in the screenshot.
@@ -53,7 +58,7 @@ internal sealed class TypedScreenQuestionRunner(
             conversationHistory.Record(userQuestion, routedResponse.ResponseText);
             PointingParseResult pointingParseResult = PointTagParser.ParsePointingCoordinates(routedResponse.ResponseText);
             // Idle before pointing, like the Mac: the spinner would hide the triangle's flight.
-            cursorOverlayManager.SetVoiceState(CompanionVoiceState.Idle);
+            interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
             bubbleText = pointingParseResult.SpokenText;
             ShowFinishedResponse(bubbleText);
             if (CompanionScreenQuestion.ResolvePointTarget(pointingParseResult, screenCaptures) is { } pointTarget)
@@ -62,7 +67,7 @@ internal sealed class TypedScreenQuestionRunner(
         catch (Exception exception)
         {
             Trace.TraceWarning($"Typed question failed: {exception}");
-            cursorOverlayManager.SetVoiceState(CompanionVoiceState.Idle);
+            interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
             bubbleText = $"Clicky couldn't answer: {exception.Message}";
             ShowFinishedResponse(bubbleText);
         }

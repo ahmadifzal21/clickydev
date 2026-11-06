@@ -55,7 +55,7 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
 
 ## Current ticket
 
-**E8 T8.1** (companion state machine) — not started. E7 is code-complete; T7.6 is the user's machine test.
+**E8 T8.2** (voice pipeline) — not started. T8.1 done.
 
 ## Ticket log (newest last)
 
@@ -286,6 +286,13 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
   fails its warm-up is released before the retry. Replies use the Windows voice meanwhile. 6 new tests (295/295, stable over 8
   repeats). Live: model hidden + dead proxy -> "Kokoro failed to load", model restored, loaded by the 30 s retry.
 
+- T8.1 done: `Companion/CompanionInteractionStateMachine.cs` — sole owner of `CompanionVoiceState`. Callers report triggers
+  (ShortcutPressed: any -> Listening; RecordingFinished: Listening -> Processing; TypedQuestionAsked: Idle/Responding ->
+  Processing; ReplyReady: Processing -> Responding; InteractionEnded: any -> Idle); a trigger that doesn't fit is ignored and
+  `Apply` returns false. App shares one instance between `PushToTalkDictation` and `TypedScreenQuestionRunner` (both default
+  to their own when constructed alone, so existing tests are unchanged); the typed question is skipped while a voice turn
+  is listening/processing. Pure table tested (17 cases).
+
 ## Tracker sync pending
 
-(none; E7 T7.1, T7.1.1, T7.1.2, T7.2, T7.3, T7.5 synced to `testing` on 2026-11-05)
+- E8 T8.1 -> testing
