@@ -1,0 +1,136 @@
+<!-- Design tokens ported from leanring-buddy/DesignSystem.swift (DS.Colors, DS.CornerRadius).
+     Every Windows UI surface references these keys instead of hard-coding colors. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="DS.Background" Color="#101211" />
+    <SolidColorBrush x:Key="DS.Surface1" Color="#171918" />
+    <SolidColorBrush x:Key="DS.Surface2" Color="#202221" />
+    <SolidColorBrush x:Key="DS.Surface3" Color="#272A29" />
+    <SolidColorBrush x:Key="DS.Surface4" Color="#2E3130" />
+    <SolidColorBrush x:Key="DS.BorderSubtle" Color="#373B39" />
+    <SolidColorBrush x:Key="DS.BorderStrong" Color="#444947" />
+    <SolidColorBrush x:Key="DS.TextPrimary" Color="#ECEEED" />
+    <SolidColorBrush x:Key="DS.TextSecondary" Color="#ADB5B2" />
+    <SolidColorBrush x:Key="DS.TextTertiary" Color="#6B736F" />
+    <SolidColorBrush x:Key="DS.Accent" Color="#2563EB" />
+    <SolidColorBrush x:Key="DS.AccentHover" Color="#1D4ED8" />
+    <SolidColorBrush x:Key="DS.AccentText" Color="#60A5FA" />
+    <SolidColorBrush x:Key="DS.Blue400" Color="#60A5FA" />
+    <SolidColorBrush x:Key="DS.Success" Color="#34D399" />
+    <SolidColorBrush x:Key="DS.Warning" Color="#FFB224" />
+    <SolidColorBrush x:Key="DS.HoverOverlay" Color="#14FFFFFF" />
+    <!-- DS.Colors.overlayCursorBlue: the companion cursor, its glow, waveform and bubbles. -->
+    <Color x:Key="DS.OverlayCursorBlueColor">#3380FF</Color>
+    <SolidColorBrush x:Key="DS.OverlayCursorBlue" Color="{StaticResource DS.OverlayCursorBlueColor}" />
+
+    <CornerRadius x:Key="DS.CornerRadius.Small">6</CornerRadius>
+    <CornerRadius x:Key="DS.CornerRadius.Medium">8</CornerRadius>
+    <CornerRadius x:Key="DS.CornerRadius.Large">10</CornerRadius>
+    <CornerRadius x:Key="DS.CornerRadius.Panel">12</CornerRadius>
+
+    <!-- Flat panel button: hand cursor plus a subtle white wash on hover, like the Mac
+         .pointerCursor() + hover states. Every clickable thing in the panel uses one of these. -->
+    <Style x:Key="DS.PanelButton" TargetType="ButtonBase">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{StaticResource DS.TextSecondary}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ButtonBase">
+                    <Border x:Name="ButtonChrome" Background="{TemplateBinding Background}"
+                            CornerRadius="{StaticResource DS.CornerRadius.Medium}" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ButtonChrome" Property="Background" Value="{StaticResource DS.HoverOverlay}" />
+                            <Setter Property="Foreground" Value="{StaticResource DS.TextPrimary}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="ButtonChrome" Property="Background" Value="{StaticResource DS.Surface3}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Round icon button for the header close (x), matching the Mac 20x20 circle. -->
+    <Style x:Key="DS.CircleIconButton" TargetType="Button">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{StaticResource DS.TextTertiary}" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid Width="20" Height="20">
+                        <Ellipse x:Name="CircleFill" Fill="#14FFFFFF" />
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="CircleFill" Property="Fill" Value="#29FFFFFF" />
+                            <Setter Property="Foreground" Value="{StaticResource DS.TextPrimary}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- iOS-style switch for the Show Clicky toggle. -->
+    <Style x:Key="DS.ToggleSwitch" TargetType="ToggleButton">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="SwitchTrack" Width="34" Height="20" CornerRadius="10" Background="{StaticResource DS.Surface4}">
+                        <Ellipse x:Name="SwitchKnob" Width="16" Height="16" Margin="2,0" HorizontalAlignment="Left" Fill="{StaticResource DS.TextPrimary}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="SwitchTrack" Property="Background" Value="{StaticResource DS.Accent}" />
+                            <Setter TargetName="SwitchKnob" Property="HorizontalAlignment" Value="Right" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="SwitchTrack" Property="Opacity" Value="0.85" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- One option in a segmented picker (backend routing). Checked = selected. Used instead of
+         ComboBox because the panel never activates, and dropdown popups misbehave in such windows. -->
+    <Style x:Key="DS.SegmentButton" TargetType="ToggleButton">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{StaticResource DS.TextSecondary}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="SegmentChrome" Background="Transparent" CornerRadius="5" Padding="6,4">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="SegmentChrome" Property="Background" Value="{StaticResource DS.HoverOverlay}" />
+                            <Setter Property="Foreground" Value="{StaticResource DS.TextPrimary}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="SegmentChrome" Property="Background" Value="{StaticResource DS.Surface4}" />
+                            <Setter Property="Foreground" Value="{StaticResource DS.TextPrimary}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

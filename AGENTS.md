@@ -145,6 +145,119 @@ IMPORTANT: Follow these naming rules strictly. Clarity is the top priority.
 - Do not rename the project directory or scheme (the "leanring" typo is intentional/legacy)
 - Do not run `xcodebuild` from the terminal — it invalidates TCC permissions
 
+## Windows Port (`windows/`)
+
+A C# / .NET 8 WPF port of the Mac app, published as a self-contained single-file `Clicky.exe` plus a `runtimes\` folder for Whisper's native DLLs and a `voices\` folder for Kokoro's voices. It lives entirely in `windows/`; the Mac code and `worker/` are not touched by it. The porting plan, Swift → Windows mapping, coordinate model, and step list are in `windows/PORTING-PLAN.md`.
+
+### Windows Architecture
+
+- **App Type**: System-tray only (`ShutdownMode=OnExplicitShutdown`, no main window), single instance via a named mutex
+- **Framework**: WPF for all UI. WinForms is referenced only for `NotifyIcon`, since WPF has no tray icon
+- **DPI**: PerMonitorV2 (in `app.manifest`). Win32 coordinates are physical pixels in virtual-screen space, and each overlay window converts to its own DIPs
+- **Monitor discovery**: `DisplayMonitorCatalog` snapshots physical bounds, work areas and per-axis DPI through Win32; a hidden top-level HWND coalesces display/settings notifications on the WPF dispatcher
+- **Cursor overlay**: `CursorOverlayManager` owns one transparent, click-through, non-activating WPF window per monitor and rebuilds them on catalog changes. HWND bounds use physical pixels, capture exclusion uses `WDA_EXCLUDEFROMCAPTURE`, and a shared foreground hook restores topmost ordering for composited fullscreen apps
+- **AI backends**: `claude -p` (Claude Code CLI, using the user's login), `codex exec -i` (Codex CLI, using the user's login), and optionally the existing Cloudflare Worker `/chat` route. No API keys ship in the app
+- **Claude Code requests**: one ephemeral process per request, UTF-8 stream-JSON with labeled JPEG blocks and prior user/assistant turns (`shouldQuery: false` on historical users). Flags verified against Claude Code 2.1.318: safe mode preserves login while excluding customizations, built-in/MCP tools and slash commands are disabled, and session persistence is off. Timeout/cancellation kills the process tree. Router/UI wiring is still pending in E5.
+- **Routing**: `clicky.config.json` maps each job (`answer`, `pointing`) to a backend, plus a `fallback` backend. It's read from next to `Clicky.exe`, else `%APPDATA%\Clicky\`, and is editable from the tray menu; hand edits are re-read when the file is saved (`FileSystemWatcher`, 250 ms debounce), a file that does not parse keeps the current settings and blocks tray saves until fixed
+- **Voice**: Whisper.net (local) for STT and Kokoro-82M (local) for TTS by default; AssemblyAI / ElevenLabs are not built yet (only if local feels slow after E8)
+- **Speech-to-text** (E6 modules at 100% line + branch coverage; the real-Whisper tests need `ggml-base.en.bin` cached, which the app or the LiveWhisper test downloads): `PushToTalkDictation` records the default mic with NAudio WaveIn (16 kHz mono PCM16, Mac level formula drives the waveform) while the shortcut is held and transcribes on release; clips under 0.3 s or quieter than -40 dBFS are skipped, all-zero audio is reported as a blocked mic (privacy registry keys). Whisper.net runs in-process on the **Vulkan** runtime (Arc GPU: base.en 0.36 s for a 3 s clip vs ~4 s on CPU), falling back to CPU automatically; the GGML model (`voice.whisperModel`, default `base.en`) is downloaded with progress to `%LOCALAPPDATA%\Clicky\models`, loaded once, warmed up on silence (first Vulkan decode compiles shaders) and swapped when the setting changes. Whisper.net only finds its native DLLs in `runtimes\` beside the exe (not in the single-file extraction folder), so the csproj target `KeepWhisperNativeLibrariesBesideExe` publishes the win-x64 CPU + Vulkan builds there and drops other platforms. A non-empty transcript goes to the shared answer step (see Voice pipeline); an empty one returns to idle
+- **Voice pipeline** (E8): `CompanionInteractionStateMachine` is the single owner of the voice state (pure trigger table: press -> Listening from anywhere, clip -> Processing, reply -> Responding, end -> Idle). Release -> transcribe -> `TypedScreenQuestionRunner.AnswerAsync` (shared with the tray's typed question): capture -> router (job Answer, history) -> bubble + PointAt -> speak the tag-stripped reply -> Idle and the transient hide (scheduled after speech). Errors go in the bubble plus a short spoken line. A press calls `InterruptCurrentAnswer` first: cancels the turn (CLI process tree killed), stops speech, hides the bubble. Console and Trace output is also written to `%LOCALAPPDATA%\Clicky\logs\clicky-yyyyMMdd.log` (7 kept; contains transcripts). "Start with Windows" = HKCU Run value `Clicky`; the config follows the registry on start.
+- **Text-to-speech** (E7): `KokoroLocalSpeaker` (`ITextToSpeechSpeaker`) runs Kokoro-82M in-process through KokoroSharp on ONNX Runtime **CPU** (DirectML crashes on the Arc GPU in `ConvTranspose`). The model (`kokoro-v1.0.onnx`, ~320 MB) is downloaded by our own `ModelFileDownload` into `%LOCALAPPDATA%\Clicky\models` (KokoroSharp's downloader writes to the current directory), loaded once at start-up and warmed up with one silent synthesis; a failed load is retried after 30 s, 2 min, then every 10 min (a config save retries at once). `voice.kokoroVoice` (default `af_heart`) names a `.npy` in `voices\` beside the exe; the csproj copies the package's top-level v1.0 voices there via `$(PkgKokoroSharp)` and keeps them out of the bundle. KokoroSharp's own `KokoroTTS`/`SpeakFast` player is deliberately not used: it runs inference on its own thread with no exception handling (an ONNX error would end Clicky) and signals the end of speech only by callback (a mid-reply failure would hang). Instead the speaker calls `KokoroModel.Infer` (behind the `KokoroInference` seam) chunk by chunk in its own task, one run at a time under a lock, and plays through an NAudio `BufferedWaveProvider` + `WaveOutEvent`, with the first chunk capped at 30 tokens (~0.8 s to first sound on the dev CPU vs ~2 s at KokoroSharp's default 200) and its punctuation pauses. `SpeakAsync` never throws and finishes when the audio has played or `StopSpeaking` runs (returns at once; an in-progress ONNX run finishes in the background); push-to-talk press stops it. Until Kokoro is ready, or if it fails before the first sound, `WindowsBuiltInSpeaker` (WinRT `SpeechSynthesizer` + NAudio WaveOut) says the reply; a failure mid-reply just stops. The config store migrates the pre-E7 default `"textToSpeech": "edge-tts"` to `kokoro-local` on load and saves the file. Tray "Speak test line" is the E7 checkpoint. `MisakiSharp.dll` (Kokoro's English dictionaries) adds ~66 MB to the exe.
+- **Tray panel**: left-click the tray icon toggles a borderless, non-activating companion panel placed next to the taskbar on whichever edge/monitor it's on; right-click opens a menu with the same backend pickers. Panel UI avoids ComboBox/Popup because popups misbehave in a window that never activates
+- **Multi-agent hand-off**: `windows/HANDOFF.md` records the current ticket and progress for whichever agent picks up the work next; `windows/agent-relay/relay.ps1` alternates Claude Code and Codex CLI headlessly when one hits its usage limit
+- **Push-to-talk**: `GlobalPushToTalkKeyboardHook` installs a listen-only `WH_KEYBOARD_LL` hook on its own message-loop thread (never swallows keys; reinstalled every 10 s because Windows silently drops slow hooks; a foreground change mid-press releases). `pushToTalkShortcut` in the config (default `ctrl+alt`, e.g. `ctrl+shift+space`) is parsed by `PushToTalkShortcut`; invalid values fall back to ctrl+alt. Ctrl+Alt is AltGr on many layouts, so typing AltGr characters also triggers it; the panel says so
+- **Screen capture**: `CompanionScreenCaptureUtility` captures every monitor in parallel with Windows Graphics Capture (one frame per monitor via `IGraphicsCaptureItemInterop.CreateForMonitor`, system cursor off, yellow border stays on until package identity in step 9), falling back per monitor to GDI `CopyFromScreen`. Both paths encode through one WinRT `BitmapEncoder` (Mac sizing: long side 1280, other side truncated; JPEG 0.8). Clicky's overlays and panel set `WDA_EXCLUDEFROMCAPTURE`, which both paths honour. The project targets `net8.0-windows10.0.19041.0` for the WinRT APIs
+- **Shared with Mac verbatim**: both system prompts and the `[POINT:x,y:label:screenN]` regex. If you change one, change both
+
+### Windows Key Files
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `windows/Clicky.Windows/App.xaml.cs` | ~80 | Tray-only entry point. Single-instance guard, loads config, wires tray icon + context menu + companion panel, owns monitor catalog and overlay lifetime (Show Clicky setting -> `SetCursorAlwaysVisible`, overlay status -> panel), disposes the tray icon first on exit |
+| `windows/Clicky.Windows/Tray/TrayIconManager.cs` | ~115 | `NotifyIcon` with a code-drawn blue cursor icon. Left-click raises `TrayIconLeftClicked(point)`; right-click shows the context menu |
+| `windows/Clicky.Windows/Tray/TrayContextMenu.cs` | ~75 | Right-click menu: Answer / Pointing / Fallback backend submenus (checked from config), Open config file, Ask about my screen (typed), Test pointing, Save debug screenshots, config error line, Quit |
+| `windows/Clicky.Windows/Tray/CompanionPanelWindow.xaml(.cs)` | ~520 | Floating dark panel. `WS_EX_NOACTIVATE` (never steals focus), so outside clicks are caught with a `WH_MOUSE_LL` hook and Escape with `RegisterHotKey`, both only while visible. Status, push-to-talk hint, Show Clicky switch, backend segmented pickers, config error banner, Quit |
+| `windows/Clicky.Windows/Tray/CompanionPanelPlacement.cs` | ~90 | Pure placement math: detects the taskbar edge from the monitor work area and positions the panel next to the tray click on any edge / monitor (physical pixels) |
+| `windows/Clicky.Windows/Input/GlobalPushToTalkKeyboardHook.cs` | ~330 | Low-level keyboard hook thread (GetMessage loop, foreground WinEvent, periodic reinstall, `ChangeShortcut` posted to the thread); raises `ShortcutTransitioned` on the hook thread |
+| `windows/Clicky.Windows/Input/PushToTalkShortcut.cs` / `PushToTalkShortcutStateMachine.cs` | ~100 / ~120 | Shortcut string parser and the pure press/release state machine (port of Mac `BuddyPushToTalkShortcut.shortcutTransition`) |
+| `windows/Clicky.Windows/Tray/CompanionPanelText.cs` | ~90 | Status text / dot color mapping (port of `statusText` in `CompanionPanelView.swift`) and shortcut display formatting |
+| `windows/Clicky.Windows/Tray/BackendRoutingPickerRows.cs` | ~75 | The Answer / Pointing / Fallback picker definitions shared by the panel and tray menu; opens the config file |
+| `windows/Clicky.Windows/Tray/ClickyDesignSystem.xaml` | ~135 | Colors and corner radii from `DesignSystem.swift`, plus shared button / switch / segment styles (hand cursor + hover) |
+| `windows/Clicky.Windows/app.manifest` | ~25 | PerMonitorV2 DPI awareness |
+| `windows/Clicky.Windows/Display/DisplayMonitorCatalog.cs` | ~150 | Win32 monitor enumeration and dispatcher notifications when display geometry or DPI changes |
+| `windows/Clicky.Windows/Display/DisplayMonitor.cs` | ~35 | Immutable monitor identity, physical bounds, work area, DPI scales and half-open containment |
+| `windows/Clicky.Windows/Display/PixelRect.cs` | ~10 | Physical pixel rectangle shared by monitor discovery and tray panel placement |
+| `windows/Clicky.Windows/Overlay/CursorOverlayWindow.cs` | ~160 | Transparent WPF host with native click-through/no-activate styles, capture exclusion, physical monitor bounds and DPI refresh notifications |
+| `windows/Clicky.Windows/Overlay/CursorOverlayManager.cs` | ~340 | Per-monitor overlay creation/rebuild/disposal, shared foreground hook to restore topmost ordering, per-frame mouse tracking via `CompositionTarget.Rendering` (only while visible); Show Clicky / transient mode with Mac fades; broadcasts voice state, response text and `PointAt`; `CompanionStatusChanged` feeds the tray panel |
+| `windows/Clicky.Windows/Overlay/BlueCursorView.xaml(.cs)` | ~450 | Port of Mac `BlueCursorView`: blue triangle with glow, trails the mouse at +(35, 25) DIPs, drawn only on the mouse's monitor; pointing sequence (fly, streamed bubble, hold, fade, fly back) driven per frame; voice-state waveform / spinner / triangle cross-fades; response text bubble (port of `CompanionResponseOverlay`) |
+| `windows/Clicky.Windows/Overlay/PointingTestTour.cs` | ~80 | Tray "Test pointing": top-left / centre / bottom-right of every monitor via the screenshot-pixel mapping, one stop at a time |
+| `windows/Clicky.Windows/Overlay/PointingFlightArc.cs` | ~60 | Mac bezier flight math (duration, arc, tangent rotation, scale pulse) + landing spot beside target |
+| `windows/Clicky.Windows/Overlay/CursorFollowSpring.cs` | ~65 | SwiftUI `.spring(response, dampingFraction)` integrated per frame (cursor follow, bubble pop) |
+| `windows/Clicky.Windows/Overlay/OverlayCoordinateMapper.cs` | ~35 | Screenshot px → global physical px (clamped onto the captured monitor) → one overlay's DIPs |
+| `windows/Clicky.Windows/ScreenCapture/CompanionScreenCaptureUtility.cs` | ~180 | Port of `CompanionScreenCaptureUtility.swift`: cursor screen first, parallel WGC per monitor with GDI fallback, shared downscale + JPEG encoder |
+| `windows/Clicky.Windows/ScreenCapture/WindowsGraphicsMonitorCapture.cs` | ~120 | WGC: D3D11 device (hardware, else WARP), capture item per HMONITOR, one frame copied to a `SoftwareBitmap` |
+| `windows/Clicky.Windows/ScreenCapture/CompanionScreenCaptureLayout.cs` | ~50 | Pure Mac screenshot sizing, cursor-first ordering and verbatim screen labels (also used by `PointingTestTour`) |
+| `windows/Clicky.Windows/ScreenCapture/CompanionScreenCapture.cs` | ~30 | Capture record: JPEG, label, captured monitor bounds, screenshot size, method and duration |
+| `windows/Clicky.Windows/ScreenCapture/DebugScreenshotWriter.cs` | ~45 | Tray "Save debug screenshots": JPEGs + `capture-log.txt` in `%TEMP%\Clicky\debug-screenshots\<time>`, opened in Explorer |
+| `windows/Clicky.Windows/Companion/CompanionVoiceState.cs` | ~20 | Idle / Listening / Processing / Responding |
+| `windows/Clicky.Windows/Companion/CompanionSystemPrompts.cs` | ~75 | System prompts copied verbatim from `CompanionManager.swift` |
+| `windows/Clicky.Windows/Companion/PointTagParser.cs` | ~80 | Port of `parsePointingCoordinates`, with the same regex |
+| `windows/Clicky.Windows/Configuration/ClickyConfiguration.cs` | ~170 | `clicky.config.json` model: job routing, backend settings, voice settings, shortcut |
+| `windows/Clicky.Windows/Configuration/ClickyConfigurationStore.cs` | ~130 | Load/create/save config. Atomic writes; never overwrites a file it failed to parse |
+| `windows/Clicky.Windows/AI/ICompanionChatBackend.cs` | ~45 | Backend interface and request records (labeled screenshots, history, prompts) |
+| `windows/Clicky.Windows/AI/ClaudeCodeCliChatBackend.cs` | ~35 | Claude Code backend using the configured executable, model and timeout; actionable installation/login errors |
+| `windows/Clicky.Windows/AI/ClaudeCodeCliProtocol.cs` | ~140 | Stream-JSON arguments, prior turns and labeled image serialization, final-result/error parsing; no CLI or network calls |
+| `windows/Clicky.Windows/AI/CodexCliChatBackend.cs` | ~65 | Codex backend: per-request temp folder (screenshots as JPEG files + `-o` last-message file), deleted afterwards; install/login errors |
+| `windows/Clicky.Windows/AI/CodexCliProtocol.cs` | ~95 | `codex exec` arguments (read-only, ephemeral, one `--image` per screenshot, prompt on stdin), system prompt/history/labels folded into one prompt, result/error parsing |
+| `windows/Clicky.Windows/AI/CliChatProcess.cs` | ~95 | Hidden child-process execution with concurrent pipe draining, timeout/cancellation, and process-tree cleanup; resolves bare names on PATH as .exe/.cmd/.bat (npm shims) |
+| `windows/Clicky.Windows/AI/CloudflareWorkerChatBackend.cs` / `CloudflareWorkerProtocol.cs` | ~55 / ~125 | `POST {workerBaseUrl}/chat` with the Mac's Messages body, SSE `text_delta` parsing, "not set up" / HTTP / unreachable / timeout errors; one shared HttpClient |
+| `windows/Clicky.Windows/AI/ChatBackendRouter.cs` | ~60 | Per-job backend from live config routing, one fallback attempt, both errors reported if both fail |
+| `windows/Clicky.Windows/Companion/CompanionConversationHistory.cs` | ~30 | Last 10 exchanges, replies stored with the [POINT] tag stripped |
+| `windows/Clicky.Windows/Companion/CompanionScreenQuestion.cs` | ~40 | Builds the request from captures (labels + image dimensions) and maps a reply's [POINT] to a physical pixel (`:screenN` or cursor screen) |
+| `windows/Clicky.Windows/Companion/TypedScreenQuestionRunner.cs` | ~165 | The answer step for voice and the tray's typed question: capture -> router -> bubble -> PointAt -> speech; interrupt/cancel; builds the router |
+| `windows/Clicky.Windows/Companion/CompanionInteractionStateMachine.cs` | ~55 | Single owner of `CompanionVoiceState`; pure trigger -> state table |
+| `windows/Clicky.Windows/Logging/ClickyLogFile.cs` | ~80 | Tees console + Trace into the daily log file, keeps 7 |
+| `windows/Clicky.Windows/Configuration/WindowsStartupRegistration.cs` | ~60 | "Start with Windows" HKCU Run value for the running exe |
+| `windows/Clicky.Windows/Voice/MicrophoneRecorder.cs` | ~115 | NAudio WaveIn per recording (16 kHz mono PCM16), float samples + smoothed level event; mic-missing / blocked errors |
+| `windows/Clicky.Windows/Voice/SpeechClip.cs` | ~105 | Pure: too-short / silent / all-zero checks, padding past whisper.cpp's 1 s minimum, transcript marker cleanup, Mac audio level |
+| `windows/Clicky.Windows/Voice/WhisperModelFile.cs` | ~50 | Validated model name -> ggml file in %LOCALAPPDATA%\Clicky\models, downloaded through `ModelFileDownload` |
+| `windows/Clicky.Windows/Voice/ModelFileDownload.cs` | ~60 | Shared models folder + HTTP download with percent progress via a .part file (Whisper and Kokoro) |
+| `windows/Clicky.Windows/Voice/KokoroLocalSpeaker.cs` | ~330 | `ITextToSpeechSpeaker`, factory (Kokoro only), `KokoroInference` seam, Kokoro download/load/warm-up, voice lookup, own chunked synthesis + NAudio playback with stop, Windows-voice fallback |
+| `windows/Clicky.Windows/Voice/WindowsBuiltInSpeaker.cs` | ~75 | Fallback voice: WinRT SpeechSynthesizer to WAV, played and stopped with NAudio WaveOutEvent |
+| `windows/Clicky.Windows/Voice/WhisperLocalTranscriber.cs` | ~140 | `ISpeechToTextTranscriber`, factory (Whisper only; AssemblyAI not built), in-process Whisper.net: load once, warm up, swap on setting change, status events |
+| `windows/Clicky.Windows/Voice/MicrophonePrivacy.cs` | ~45 | Reads the microphone ConsentStore keys (device, user, desktop apps) and the fix-it text |
+| `windows/Clicky.Windows/Voice/PushToTalkDictation.cs` | ~140 | Shortcut press -> record + Listening; release -> Processing -> transcript in log + panel note -> answer step (or Idle if empty); stale-press guard |
+| `windows/Clicky.Windows.Tests/SpeechClipTests.cs` / `LiveWhisperTranscriptionTests.cs` | ~70 / ~75 | Clip checks, cleanup, level, model-name validation; opt-in (`CLICKY_LIVE_WHISPER=1`, `Category=LiveWhisper`) real download + JFK sample timing for base.en / small.en |
+| `windows/Clicky.Windows.Tests/MicrophoneRecorderTests.cs` / `MicrophonePrivacyTests.cs` / `WhisperModelFileTests.cs` | ~125 / ~75 / ~125 | Fake `IWaveIn` (no device, open failure, PCM→float, levels, stop timeout); scratch HKCU keys standing in for both registry roots; fake HTTP handler + temp folder for download, progress, cache, 404, bad names |
+| `windows/Clicky.Windows.Tests/WhisperLocalTranscriberTests.cs` / `PushToTalkDictationTests.cs` | ~230 / ~230 | Real Whisper on the cached base.en model served through the download seam (statuses, swap, stale download, failure + retry, dispose, cancel); press/release flow on an STA dispatcher with the real overlay, fake mic and fake transcriber (all notes, stale presses) |
+| `windows/Clicky.Windows.Tests/KokoroLocalSpeakerTests.cs` / `LiveTextToSpeechTests.cs` | ~190 / ~120 | Fake download, fake model (slow / failing runs), fake sound output and recording fallback voice: full reply, error before sound -> Windows voice, error mid-reply -> stops, prompt stop, reply replaces reply, load failure + retry, progress, voice lookup, blank text, model download URL/cache, release on dispose, factory; opt-in and audible (`CLICKY_LIVE_TTS=1`, `Category=LiveTts`) real model timing and interrupt for Kokoro and the Windows voice |
+| `windows/Clicky.Windows.Tests/VoiceTestFakes.cs` | ~140 | `FakeWaveIn`, fake transcriber, STA dispatcher helpers, offline speech via Windows System.Speech (PowerShell 5.1), cached-model path |
+| `windows/Clicky.Windows.Tests/` | — | xUnit tests for parsing, config, panel placement, panel text, picker rows and display geometry |
+| `windows/Clicky.Windows.Tests/ClaudeCodeCliProtocolTests.cs` / `ClaudeCodeCliChatBackendTests.cs` | ~145 / ~40 | Claude request/result protocol, tool restrictions, authentication errors, missing executable and invalid timeout tests |
+| `windows/Clicky.Windows.Tests/CodexCliProtocolTests.cs` / `CodexCliChatBackendTests.cs` | ~105 / ~40 | Codex argument/prompt/result tests, login errors, missing executable + temp folder cleanup |
+| `windows/Clicky.Windows.Tests/CliChatProcessTests.cs` | ~125 | Local PowerShell fixtures for UTF-8 pipes, early exit, cancellation and timeout killing parent/child; no AI CLI/network calls |
+| `windows/Clicky.Windows.Tests/CursorOverlayWindowTests.cs` | ~200 | STA native-window tests for physical bounds, input/activation styles, capture affinity and overlay disposal |
+
+### Windows Build & Run
+
+```bash
+cd windows
+dotnet build                                   # debug build
+dotnet test                                    # unit tests
+dotnet run --project Clicky.Windows            # run (tray icon appears)
+dotnet publish Clicky.Windows -c Release -o publish   # → publish/Clicky.exe (single file) + publish/runtimes/ (Whisper natives) + publish/voices/ (Kokoro voices); ship all three
+```
+
+`windows/nuget.config` pins restore to nuget.org, so builds don't depend on the user-level NuGet config.
+
+### C# Conventions
+
+The naming and clarity rules above apply unchanged: long descriptive names, no single-character variables, and arguments named the same as the variables passed in.
+- Use WPF for UI. Drop to Win32 (P/Invoke) only for things WPF can't do (click-through overlays, low-level keyboard hooks, `WS_EX_NOACTIVATE`), and comment why
+- UI state changes happen on the WPF dispatcher thread; use async/await for I/O and child processes
+- Fully qualify `System.Windows.Forms` / `System.Drawing` types (their implicit usings are removed) to avoid clashes with WPF types
+- Keep logic that doesn't need a window (parsing, coordinate mapping, config, routing) in plain classes with tests in `Clicky.Windows.Tests`
+
 ## Git Workflow
 
 - Branch naming: `feature/description` or `fix/description`

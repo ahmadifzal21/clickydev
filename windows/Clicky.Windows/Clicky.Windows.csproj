@@ -1,0 +1,87 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Clicky.Windows</RootNamespace>
+    <AssemblyName>Clicky</AssemblyName>
+    <!-- Foundry Local's runtime package sets RuntimeIdentifier to the SDK's (win-x64) when none is given, but only at build
+         time; listing it here makes restore produce the matching assets. Clicky only ships win-x64. -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+
+    <!-- WPF draws the panel and overlay. WinForms is only used for NotifyIcon
+         (WPF has no tray icon), so keep its implicit usings off to avoid
+         System.Windows.Forms types shadowing their WPF namesakes. -->
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <!-- PerMonitorV2 DPI awareness lives in the manifest so every Win32 API
+         we call reports physical pixels. See PORTING-PLAN.md "Coordinates". -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- WFAC010 is a WinForms-only analyzer suggesting Application.SetHighDpiMode. This is a
+         WPF app, where the manifest is the correct place to declare DPI awareness. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+
+  <!-- Single-file, self-contained publish: `dotnet publish -c Release` → one Clicky.exe.
+       Only applied while publishing, so the (framework-dependent) test project can
+       still reference this project for normal builds. -->
+  <PropertyGroup Condition="'$(_IsPublishing)' == 'true'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Remove WinForms global usings; reference System.Windows.Forms types explicitly. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Clicky.Windows.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- KokoroSharp.CPU brings ONNX Runtime's CPU natives. KokoroSharp is referenced directly only for $(PkgKokoroSharp),
+         the folder its voice files come from; its own copy target is skipped because it copies every language's voices. -->
+    <PackageReference Include="KokoroSharp" Version="0.8.4" GeneratePathProperty="true" ExcludeAssets="build;buildTransitive" />
+    <PackageReference Include="KokoroSharp.CPU" Version="0.8.4" />
+    <!-- Foundry Local (MIT, in-process): the live speech model, the default speech-to-text since E10 T10.8. -->
+    <PackageReference Include="Microsoft.AI.Foundry.Local" Version="2.2.1" />
+    <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.1" />
+  </ItemGroup>
+
+  <!-- Kokoro voices (0.5 MB each) load from voices\ beside the exe (KokoroVoiceManager reads AppContext.BaseDirectory),
+       so they ship as loose files, not inside the single-file bundle. Only the top-level v1.0 voices: voices-zh needs the
+       separate Chinese model. -->
+  <ItemGroup>
+    <None Include="$(PkgKokoroSharp)\content\voices\*.npy" Link="voices\%(Filename)%(Extension)" Visible="false"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
+  <!-- Whisper.net looks for its native DLLs only in runtimes\ next to the exe, not in the folder the single-file
+       bundle extracts to (a bundled publish fails with "Native Library not found in default paths"). So publish
+       ships Clicky.exe plus a runtimes\ folder holding just the win-x64 CPU and Vulkan builds. -->
+  <Target Name="KeepWhisperNativeLibrariesBesideExe" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <!-- ONNX Runtime's import libraries (onnxruntime.lib) are for C++ linking only. -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.lib'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes'))&#xA;                                        And !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Contains('win-x64'))" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes'))" ExcludeFromSingleFile="true" />
+      <!-- Foundry Local's runtime arrives as plain content, which would be packed into the bundle where P/Invoke can't load it;
+           keep foundry_local.dll beside Clicky.exe, with the ONNX Runtime DLLs it links against (onnxruntime, -genai,
+           providers_shared; Kokoro shares onnxruntime.dll) and its Windows ML helper. Bundled, those extract to a temp folder
+           foundry_local.dll can't see, and the SDK fails with "Dll was not found". -->
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'foundry_local' Or '%(Filename)' == 'Microsoft.Windows.AI.MachineLearning' Or $([System.String]::Copy('%(Filename)').StartsWith('onnxruntime'))" ExcludeFromSingleFile="true" />
+    </ItemGroup>
+  </Target>
+
+</Project>

@@ -144,6 +144,61 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 - **Screen Recording** — for taking screenshots when you use the hotkey
 - **Screen Content** — for ScreenCaptureKit access
 
+## Windows port (community)
+
+`windows/` holds a community port of the open-source Clicky to Windows (WPF, .NET 8). It is not HeyClicky for Windows.
+It lives in the system tray: hold the push-to-talk shortcut (default `Ctrl+Alt`), ask about your screen, let go, and Clicky
+answers out loud and points at things on any monitor.
+
+**Requirements**
+- Windows 10 version 2004 (build 19041) or later, x64.
+- At least one AI backend:
+  - **Claude Code CLI** (`claude`, logged in): the default. Uses your Claude Code login, no API key in Clicky.
+  - **Codex CLI** (`codex`, logged in).
+  - **Cloudflare Worker**: the `worker/` from this repo, deployed, with its URL in `cloudflareWorker.workerBaseUrl`.
+- A microphone. Speech-to-text (Whisper) and text-to-speech (Kokoro) run locally; Whisper uses a Vulkan GPU when there is one
+  and falls back to the CPU.
+- To build: the .NET 8 SDK.
+
+**Build and run**
+
+```powershell
+cd windows
+dotnet build Clicky.Windows.sln -c Debug
+dotnet test
+```
+
+**Publish a release build**
+
+```powershell
+cd windows/Clicky.Windows
+dotnet publish -c Release
+# -> bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/
+```
+
+The output is a self-contained `Clicky.exe` (no .NET install needed) plus two folders that must stay next to it:
+`runtimes\` (Whisper's native CPU and Vulkan libraries) and `voices\` (Kokoro voices). Copy the whole folder.
+
+**First run**
+
+Clicky downloads its speech models into `%LOCALAPPDATA%\Clicky\models` the first time it starts (progress shows in the
+panel): the Whisper model (`base.en` about 140 MB, `small.en` about 470 MB) and Kokoro (about 310 MB). Until Kokoro is ready,
+replies use the built-in Windows voice. Windows may ask for microphone access; if Clicky only hears silence, check
+Settings > Privacy & security > Microphone > "Let desktop apps access your microphone".
+
+**Configuration**
+
+`%APPDATA%\Clicky\clicky.config.json`, created with defaults on first run (tray menu > "Open config file"). The tray menu and
+panel change the common settings; the file has the rest:
+- `jobRouting`: which backend answers (`answer`), which handles pointing-only requests (`pointing`), and the `fallback` tried
+  once if that fails: `claude-code-cli`, `codex-cli` or `cloudflare-worker`.
+- `pushToTalkShortcut`: for example `ctrl+alt`, `ctrl+shift+space`, `win+alt+f12`.
+- `voice.whisperModel` (`base.en`, `small.en`, ...) and `voice.kokoroVoice` (`af_heart`, `am_michael`, `bf_emma`, ...).
+- `isClickyCursorAlwaysVisible` ("Show Clicky") and `startWithWindows`.
+
+Logs go to `%LOCALAPPDATA%\Clicky\logs` (one file per day, the last 7 kept). They include what you said and what Clicky
+answered, so read them before sharing one.
+
 ## Architecture
 
 If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:

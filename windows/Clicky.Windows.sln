@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clicky.Windows", "Clicky.Windows\Clicky.Windows.csproj", "{8581BF9C-56EE-4F0B-BD0F-436B4EE911DE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clicky.Windows.Tests", "Clicky.Windows.Tests\Clicky.Windows.Tests.csproj", "{F00D8BB1-44B8-46C8-9581-C10256FFD0E9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8581BF9C-56EE-4F0B-BD0F-436B4EE911DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8581BF9C-56EE-4F0B-BD0F-436B4EE911DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8581BF9C-56EE-4F0B-BD0F-436B4EE911DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8581BF9C-56EE-4F0B-BD0F-436B4EE911DE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F00D8BB1-44B8-46C8-9581-C10256FFD0E9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F00D8BB1-44B8-46C8-9581-C10256FFD0E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F00D8BB1-44B8-46C8-9581-C10256FFD0E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F00D8BB1-44B8-46C8-9581-C10256FFD0E9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
