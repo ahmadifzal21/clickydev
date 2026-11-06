@@ -3,6 +3,7 @@ using Clicky.Windows.Companion;
 using Clicky.Windows.Configuration;
 using Clicky.Windows.Display;
 using Clicky.Windows.Input;
+using Clicky.Windows.Logging;
 using Clicky.Windows.Overlay;
 using Clicky.Windows.ScreenCapture;
 using Clicky.Windows.Tray;
@@ -46,6 +47,7 @@ public partial class App : Application
             return;
         }
 
+        ClickyLogFile.Start();
         clickyConfigurationStore = ClickyConfigurationStore.LoadOrCreateDefault();
         displayMonitorCatalog = new DisplayMonitorCatalog();
         Console.WriteLine($"Clicky config loaded from {clickyConfigurationStore.ConfigurationFilePath}");

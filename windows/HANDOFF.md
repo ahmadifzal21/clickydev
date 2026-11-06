@@ -55,7 +55,7 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
 
 ## Current ticket
 
-**E8 T8.5** (log file) — not started. T8.4 done.
+**E8 T8.6** (Start with Windows) — not started. T8.5 done.
 
 ## Ticket log (newest last)
 
@@ -311,6 +311,14 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
   first appearance only); a press during a fade-out snaps back to full opacity. New test
   `TransientMode_StaysUpThroughLongSpeech_ThenFadesOutAfterTheLastActivity`: 20 s of fake speech keeps the overlay up, it is
   still up 0.9 s after, gone shortly after.
+- T8.5 done: `Logging/ClickyLogFile.cs` — `Start()` (first thing in OnStartup) tees Console.Out and adds a Trace listener into
+  `%LOCALAPPDATA%\Clicky\logs\clicky-yyyyMMdd.log` (append, shared read, auto-flush, `HH:mm:ss.fff` per file line; the console
+  copy is unchanged), deletes all but the newest 7 `clicky-*.log`. Failure to open the log never stops startup. Known limit
+  (in code): the file is chosen at startup, no midnight rollover. 2 tests. Smoke (current debug exe): log shows config, Whisper
+  and Kokoro load lines. Note for smoke runs: `bin\Debug
+et8.0-windows\Clicky.exe` is a stale pre-E4 build; use
+  `bin\Debug
+et8.0-windows10.0.19041.0\Clicky.exe` (the T8.2 "app starts" smoke ran the stale one; this run covers T8.2-T8.4).
 
 ## Tracker sync pending
 
@@ -318,3 +326,4 @@ Tests must not touch the real mic, speakers, CLIs, registry or network: put logi
 - E8 T8.2 -> testing
 - E8 T8.3 -> testing
 - E8 T8.4 -> testing
+- E8 T8.5 -> testing
