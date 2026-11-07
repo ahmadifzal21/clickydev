@@ -84,6 +84,9 @@ public sealed class ClickyConfiguration
     /// <summary>When a browser is in front, read the page's address and text for the answer (E11 T11.26). Sent to the model only.</summary>
     public bool ReadBrowserPage { get; set; } = true;
 
+    /// <summary>Keep every turn (screenshots, context, reply, timing) under %LOCALAPPDATA%\Clicky\turns for the bench (E11 T11.28).</summary>
+    public bool SaveTurns { get; set; }
+
     /// <summary>
     /// "Start with Windows" (a per-user Run registry value). On start the app sets this from the registry, which is the
     /// truth; changing it here (panel, tray or the file) writes or removes the registry value.

@@ -97,6 +97,7 @@ public partial class App : Application
         typedScreenQuestionRunner.Memory = new CompanionMemory(CompanionMemory.PathNextTo(clickyConfigurationStore.ConfigurationFilePath));
         ClickyConfigurationStore configurationStore = clickyConfigurationStore;
         typedScreenQuestionRunner.ShouldReadBrowserPage = () => configurationStore.CurrentConfiguration.ReadBrowserPage;
+        typedScreenQuestionRunner.ShouldSaveTurns = () => configurationStore.CurrentConfiguration.SaveTurns;
         // Background jobs: a finished one is announced (when Clicky isn't talking) and its summary shown on a card.
         ITextToSpeechSpeaker speaker = textToSpeechSpeaker;
         agentJobManager = new Clicky.Windows.Agents.AgentJobManager(configurationStore.CurrentConfiguration.Agents,
