@@ -21,7 +21,11 @@ public sealed record CompanionChatRequest(
     string SystemPrompt,
     IReadOnlyList<LabeledScreenshotImage> LabeledScreenshotImages,
     IReadOnlyList<ConversationExchange> ConversationHistory,
-    string UserPrompt);
+    string UserPrompt)
+{
+    /// <summary>The app's [context] lines for this turn (E11 T11.19), sent before the screenshots and the user's words.</summary>
+    public string? TurnContext { get; init; }
+}
 
 /// <summary>
 /// A provider that turns a <see cref="CompanionChatRequest"/> into the model's full text reply

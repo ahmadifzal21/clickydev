@@ -72,6 +72,8 @@ internal static class CodexCliProtocol
             }
             prompt.AppendLine();
         }
+        if (!string.IsNullOrWhiteSpace(companionChatRequest.TurnContext))
+            prompt.AppendLine(companionChatRequest.TurnContext.Trim()).AppendLine();
         IReadOnlyList<LabeledScreenshotImage> screenshots = companionChatRequest.LabeledScreenshotImages;
         if (screenshots.Count > 0)
         {

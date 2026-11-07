@@ -79,6 +79,8 @@ internal static class ClaudeCodeCliProtocol
     public static List<object> BuildCurrentUserContentBlocks(CompanionChatRequest companionChatRequest)
     {
         var contentBlocks = new List<object>();
+        if (!string.IsNullOrWhiteSpace(companionChatRequest.TurnContext))
+            contentBlocks.Add(new { type = "text", text = companionChatRequest.TurnContext });
         foreach (LabeledScreenshotImage screenshot in companionChatRequest.LabeledScreenshotImages)
         {
             contentBlocks.Add(new

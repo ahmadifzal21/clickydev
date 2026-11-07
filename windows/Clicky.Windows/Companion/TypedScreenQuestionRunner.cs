@@ -36,6 +36,15 @@ internal sealed class TypedScreenQuestionRunner(
     /// <summary>Started by <see cref="CaptureOnPress"/>, used once by the voice turn that the press leads to.</summary>
     private Task<IReadOnlyList<CompanionScreenCapture>>? captureFromPress;
 
+    /// <summary>The app in front at the press, for the voice turn's context (by the release, Clicky's own UI may be in front).</summary>
+    private ForegroundAppInfo? frontAppFromPress;
+
+    /// <summary>Whether the last question was spoken; a walkthrough's follow-ups carry it on.</summary>
+    private bool lastQuestionWasVoice = true;
+
+    /// <summary>More app lines for each turn's context (memory, the browser page, a highlight, jobs); added by later features.</summary>
+    public List<Func<IEnumerable<string>>> TurnContextSources { get; } = [];
+
     /// <summary>
     /// Push-to-talk press: capture now, while the user talks, so the turn doesn't wait for it after the release. The screen at
     /// the press is what the question is about (HeyClicky captures at release). A tap or an empty transcript leaves it unused;
@@ -43,6 +52,7 @@ internal sealed class TypedScreenQuestionRunner(
     /// </summary>
     public void CaptureOnPress()
     {
+        frontAppFromPress = ForegroundAppInfo.Read();
         captureFromPress = CaptureThenPrestartAnswerAsync(
             CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, CancellationToken.None));
         // A failure surfaces in the turn that uses it; one that is never used must not go unobserved.
@@ -127,7 +137,10 @@ internal sealed class TypedScreenQuestionRunner(
         int thisTurnId = turnId ?? TurnEventLog.StartTurn(trigger.IsWalkthrough ? trigger.Kind.ToString() : "question");
         if (!trigger.IsWalkthrough) walkthroughStep = 0;
         IReadOnlyList<string> appNotes = Walkthrough?.TakeNotes() ?? [];
-        string userPrompt = CompanionScreenQuestion.BuildUserPrompt(userQuestion, trigger, appNotes);
+        bool isVoice = trigger.IsWalkthrough ? lastQuestionWasVoice : screenCapturesTask is not null || turnId is not null;
+        if (!trigger.IsWalkthrough) lastQuestionWasVoice = isVoice;
+        ForegroundAppInfo? frontApp = screenCapturesTask is not null ? frontAppFromPress : ForegroundAppInfo.Read();
+        string userPrompt = CompanionScreenQuestion.BuildUserPrompt(userQuestion, trigger);
         string historyUserText = userQuestion.Length > 0 ? userQuestion : trigger.AppFact ?? "";
         bool armedATargetThisTurn = false;
         int armedTargetLine = -1;
@@ -215,8 +228,11 @@ internal sealed class TypedScreenQuestionRunner(
             RoutedChatResponse routedResponse;
             try
             {
+                string turnContext = CompanionTurnContext.Build(DateTime.Now, frontApp, isVoice, trigger.WalkthroughStep,
+                    [.. appNotes, .. TurnContextSources.SelectMany(source => source())]);
                 routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
-                    CompanionScreenQuestion.BuildChatRequest(userPrompt, screenCaptures, conversationHistory.GetExchanges()),
+                    CompanionScreenQuestion.BuildChatRequest(userPrompt, screenCaptures, conversationHistory.GetExchanges())
+                        with { TurnContext = turnContext },
                     cancellationToken, textDelta =>
                     {
                         TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.TextDelta, textDelta);

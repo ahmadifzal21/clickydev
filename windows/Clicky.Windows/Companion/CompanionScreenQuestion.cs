@@ -17,12 +17,12 @@ internal static class CompanionScreenQuestion
         new(CompanionSystemPrompts.CompanionVoiceResponseSystemPrompt, LabelScreenshots(screenCaptures), conversationHistory, userQuestion);
 
     /// <summary>
-    /// The text of the turn's user message: the app's notes and the reason for the turn (a walkthrough step's [App] fact) before
-    /// whatever the user said. A follow-up has no words of the user's.
+    /// The text of the turn's user message: the reason for the turn (a walkthrough step's [App] fact) before whatever the user
+    /// said. A follow-up has no words of the user's. Other app lines go in the turn context.
     /// </summary>
-    public static string BuildUserPrompt(string userWords, TurnTrigger trigger, IReadOnlyList<string> appNotes)
+    public static string BuildUserPrompt(string userWords, TurnTrigger trigger)
     {
-        List<string> lines = [.. appNotes];
+        List<string> lines = [];
         if (trigger.AppFact is { Length: > 0 } appFact) lines.Add(appFact);
         if (userWords.Length > 0) lines.Add(userWords);
         return string.Join("\n", lines);
