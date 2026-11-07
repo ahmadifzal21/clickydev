@@ -21,7 +21,7 @@ public class ClaudeCodeCliProtocolTests
     public void Arguments_PassPromptByFileAndModelLiteral_AndDisableActionsAndPersistence()
     {
         const string systemPromptFilePath = @"C:\Temp Dir\clicky-claude-1.txt";
-        var settings = new ClaudeCodeCliBackendSettings { ExecutablePath = @"C:\Claude Code\claude.exe", Model = "opus", Effort = "low" };
+        var settings = new ClaudeCodeCliBackendSettings { ExecutablePath = @"C:\Claude Code\claude.exe", Model = "opus", Effort = "low", WebTools = false };
 
         var startInfo = ClaudeCodeCliProtocol.BuildStartInfo(settings, systemPromptFilePath);
 

@@ -45,6 +45,12 @@ internal sealed class TypedScreenQuestionRunner(
     /// <summary>The release's highlighter stroke (or null); the next voice turn paints it into its screenshot and describes it.</summary>
     public void SetHighlightForNextVoiceTurn(HighlightStroke? stroke) => highlightFromPress = stroke;
 
+    /// <summary>The browser page read at the press (E11 T11.26), for the voice turn that follows.</summary>
+    private Task<string?>? pageFromPress;
+
+    /// <summary>Whether to read the page when a browser is in front (config readBrowserPage).</summary>
+    public Func<bool> ShouldReadBrowserPage { get; set; } = () => true;
+
     /// <summary>Whether the last question was spoken; a walkthrough's follow-ups carry it on.</summary>
     private bool lastQuestionWasVoice = true;
 
@@ -59,6 +65,7 @@ internal sealed class TypedScreenQuestionRunner(
     public void CaptureOnPress()
     {
         frontAppFromPress = ForegroundAppInfo.Read();
+        pageFromPress = ShouldReadBrowserPage() ? Automation.BrowserPageReader.ReadContextLineAsync(frontAppFromPress) : null;
         captureFromPress = CaptureThenPrestartAnswerAsync(
             CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, CancellationToken.None));
         // A failure surfaces in the turn that uses it; one that is never used must not go unobserved.
@@ -109,6 +116,19 @@ internal sealed class TypedScreenQuestionRunner(
         cursorOverlayManager.HideResponse();
     }
 
+    /// <summary>What the model remembers about the user (E11 T11.24); its [memory] line goes into every turn's context.</summary>
+    public CompanionMemory? Memory
+    {
+        get => memory;
+        set
+        {
+            memory = value;
+            if (value is not null) TurnContextSources.Add(() => value.ContextLine() is { } line ? [line] : []);
+        }
+    }
+
+    private CompanionMemory? memory;
+
     /// <summary>The guided walkthrough (E11 T11.12-T11.17), attached after construction since it starts this runner's follow-ups.</summary>
     public GuidedWalkthrough? Walkthrough { get; set; }
 
@@ -151,6 +171,9 @@ internal sealed class TypedScreenQuestionRunner(
         ForegroundAppInfo? frontApp = screenCapturesTask is not null ? frontAppFromPress : ForegroundAppInfo.Read();
         HighlightStroke? highlight = screenCapturesTask is not null ? highlightFromPress : null;
         highlightFromPress = null;
+        Task<string?>? pageRead = screenCapturesTask is not null ? pageFromPress
+            : ShouldReadBrowserPage() ? Automation.BrowserPageReader.ReadContextLineAsync(frontApp) : null;
+        pageFromPress = null;
         string? highlightLine = null;
         string userPrompt = CompanionScreenQuestion.BuildUserPrompt(userQuestion, trigger);
         string historyUserText = userQuestion.Length > 0 ? userQuestion : trigger.AppFact ?? "";
@@ -204,6 +227,23 @@ internal sealed class TypedScreenQuestionRunner(
                 case "clear":
                     cursorOverlayManager.ClearDrawing();
                     break;
+                case "remember" when call.Text(0) is { Length: > 0 } fact:
+                    Memory?.Remember(fact);
+                    break;
+                case "forget" when call.Text(0) is { Length: > 0 } words:
+                    Memory?.Forget(words);
+                    break;
+                case "copy" when call.Text(0) is { } textToCopy:
+                    CompanionActions.Copy(textToCopy);
+                    break;
+                case "open" when call.Text(0) is { } link:
+                    CompanionActions.Open(link);
+                    break;
+                case "result":
+                    string[] resultTexts = call.Arguments.OfType<string>().ToArray();
+                    if (resultTexts.Length > 0)
+                        ResultCardWindow.Show(resultTexts.Length >= 2 ? resultTexts[0] : "", resultTexts.Length >= 2 ? resultTexts[1] : resultTexts[0]);
+                    break;
                 case var name when ScreenMarkBuilder.DrawingCallNames.Contains(name):
                     if (ScreenMarkBuilder.FromCall(call, screenCaptures) is { } mark) cursorOverlayManager.Draw(mark);
                     else Trace.TraceWarning($"Reply mark skipped (missing numbers or screen): {call}");
@@ -241,8 +281,9 @@ internal sealed class TypedScreenQuestionRunner(
             RoutedChatResponse routedResponse;
             try
             {
+                string? pageLine = pageRead is null ? null : await pageRead;
                 string turnContext = CompanionTurnContext.Build(DateTime.Now, frontApp, isVoice, trigger.WalkthroughStep,
-                    [.. appNotes, highlightLine ?? "", conversationHistory.EarlierSummary ?? "", .. TurnContextSources.SelectMany(source => source())]);
+                    [.. appNotes, highlightLine ?? "", pageLine ?? "", conversationHistory.EarlierSummary ?? "", .. TurnContextSources.SelectMany(source => source())]);
                 routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
                     CompanionScreenQuestion.BuildChatRequest(userPrompt, screenCaptures, conversationHistory.GetExchanges())
                         with { TurnContext = turnContext, HistoryVersion = conversationHistory.Version },
@@ -329,7 +370,7 @@ internal sealed class TypedScreenQuestionRunner(
         string? text = await HighlightGesture.ReadTextUnderAsync(stroke);
         string screen = screenCaptures.Count > 1 ? $" on screen {captureIndex + 1}" : "";
         string line = $"[highlight] while asking, they {described}{screen} (it's drawn in the screenshot)" + (text is null ? "" : $"; text there: \"{text}\"");
-        Trace.WriteLine(line);
+        Trace.WriteLine($"Highlight: they {described}{screen}{(text is null ? "" : " (text under it read)")}."); // Not the text itself: the log is a file.
         return (painted, line);
     }
 

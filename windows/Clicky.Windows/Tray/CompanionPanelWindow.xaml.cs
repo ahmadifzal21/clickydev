@@ -153,6 +153,16 @@ public partial class CompanionPanelWindow : Window
         BackendRoutingPickerRows.OpenConfigurationFileInEditor(clickyConfigurationStore.ConfigurationFilePath);
     }
 
+    /// <summary>What Clicky remembers about the user (E11 T11.24), created empty first so there is something to open.</summary>
+    private void HandleOpenMemoryFileButtonClick(object sender, RoutedEventArgs routedEventArgs)
+    {
+        HidePanel();
+        string memoryFilePath = Companion.CompanionMemory.PathNextTo(clickyConfigurationStore.ConfigurationFilePath);
+        if (!System.IO.File.Exists(memoryFilePath))
+            System.IO.File.WriteAllText(memoryFilePath, "# What Clicky remembers about you. One fact per line; edit or delete freely.\n");
+        BackendRoutingPickerRows.OpenConfigurationFileInEditor(memoryFilePath);
+    }
+
     private void ApplyConfiguration(ClickyConfiguration clickyConfiguration)
     {
         foreach ((BackendRoutingPickerRow pickerRow, System.Windows.Controls.Primitives.ToggleButton segmentButton, ChatBackendKind? option) in backendSegmentButtons)

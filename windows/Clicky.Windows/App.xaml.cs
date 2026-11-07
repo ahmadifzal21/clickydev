@@ -93,6 +93,9 @@ public partial class App : Application
             IsTalkKeyHeld = () => companionInteractionStateMachine.CurrentState == CompanionVoiceState.Listening
         });
         typedScreenQuestionRunner.Walkthrough = guidedWalkthrough;
+        typedScreenQuestionRunner.Memory = new CompanionMemory(CompanionMemory.PathNextTo(clickyConfigurationStore.ConfigurationFilePath));
+        ClickyConfigurationStore configurationStore = clickyConfigurationStore;
+        typedScreenQuestionRunner.ShouldReadBrowserPage = () => configurationStore.CurrentConfiguration.ReadBrowserPage;
         highlightGesture = new HighlightGesture(globalMouseHook, overlayManager.ShowHighlightTrail, overlayManager.HideHighlightTrail);
         HighlightGesture highlighter = highlightGesture;
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,

@@ -19,7 +19,7 @@ public class CodexCliProtocolTests
     public void BuildStartInfo_IsReadOnlyEphemeralWithOneImageFlagPerScreenshotAndPromptOnStdin()
     {
         var startInfo = CodexCliProtocol.BuildStartInfo(
-            new CodexCliBackendSettings { ExecutablePath = "codex", Model = "gpt-test", ReasoningEffort = "low" },
+            new CodexCliBackendSettings { ExecutablePath = "codex", Model = "gpt-test", ReasoningEffort = "low", WebSearch = false },
             [@"C:\t\screen-1.jpg", @"C:\t\screen 2.jpg"], @"C:\t\last-message.txt", @"C:\t");
 
         Assert.Equal(
@@ -37,7 +37,7 @@ public class CodexCliProtocolTests
     [Fact]
     public void BuildStartInfo_WithoutModelOrImages_OmitsThoseFlags()
     {
-        var startInfo = CodexCliProtocol.BuildStartInfo(new CodexCliBackendSettings { ReasoningEffort = null }, [], "out.txt", ".");
+        var startInfo = CodexCliProtocol.BuildStartInfo(new CodexCliBackendSettings { ReasoningEffort = null, WebSearch = false }, [], "out.txt", ".");
 
         Assert.DoesNotContain("--model", startInfo.ArgumentList);
         Assert.DoesNotContain("-c", startInfo.ArgumentList);

@@ -217,7 +217,8 @@ internal sealed class HighlightGesture
             try
             {
                 AutomationElement? element = AutomationElement.FromPoint(center);
-                if (element is null || element.Current.ProcessId == Environment.ProcessId) { result.TrySetResult(null); return; }
+                // Never Clicky's own windows, and never a password box: its value must not reach the model or the log.
+                if (element is null || element.Current.ProcessId == Environment.ProcessId || element.Current.IsPassword) { result.TrySetResult(null); return; }
                 string text = element.Current.Name;
                 if (string.IsNullOrWhiteSpace(text) && element.TryGetCurrentPattern(ValuePattern.Pattern, out object valuePattern))
                     text = ((ValuePattern)valuePattern).Current.Value;

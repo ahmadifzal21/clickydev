@@ -78,6 +78,9 @@ public sealed class ClickyConfiguration
     /// </summary>
     public bool IsClickyCursorAlwaysVisible { get; set; } = true;
 
+    /// <summary>When a browser is in front, read the page's address and text for the answer (E11 T11.26). Sent to the model only.</summary>
+    public bool ReadBrowserPage { get; set; } = true;
+
     /// <summary>
     /// "Start with Windows" (a per-user Run registry value). On start the app sets this from the registry, which is the
     /// truth; changing it here (panel, tray or the file) writes or removes the registry value.
@@ -141,6 +144,9 @@ public sealed class ClaudeCodeCliBackendSettings
     /// </summary>
     public bool KeepSessionAlive { get; set; } = true;
 
+    /// <summary>Let Claude search the web and read pages when an answer needs fresh facts (E11 T11.26). Nothing else is allowed.</summary>
+    public bool WebTools { get; set; } = true;
+
     public int ResponseTimeoutSeconds { get; set; } = 120;
 }
 
@@ -154,6 +160,9 @@ public sealed class CodexCliBackendSettings
 
     /// <summary>Passed as -c model_reasoning_effort=... Low cuts most of Codex's thinking time before the first word.</summary>
     public string? ReasoningEffort { get; set; } = "low";
+
+    /// <summary>Codex's built-in live web search (--search) for answers that need fresh facts (E11 T11.26).</summary>
+    public bool WebSearch { get; set; } = true;
 
     public int ResponseTimeoutSeconds { get; set; } = 120;
 }

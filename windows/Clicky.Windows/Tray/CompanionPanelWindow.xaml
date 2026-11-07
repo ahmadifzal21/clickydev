@@ -123,6 +123,10 @@
                 <TextBlock Text="Open config file" />
             </Button>
 
+            <Button Margin="8,4,8,0" Style="{StaticResource DS.PanelButton}" Click="HandleOpenMemoryFileButtonClick">
+                <TextBlock Text="Open memory file" />
+            </Button>
+
             <Rectangle Height="1" Margin="0,14,0,0" Fill="{StaticResource DS.BorderSubtle}" />
 
             <Button Margin="8" Style="{StaticResource DS.PanelButton}" Click="HandleQuitButtonClick">

@@ -29,6 +29,8 @@ internal static class CodexCliProtocol
         };
         // --ignore-user-config skips config.toml (hooks, notify, custom provider, xhigh effort): ~6 s instead of 20-28 s per
         // answer. Login still comes from CODEX_HOME; codexCli.model in clicky.config.json picks the model.
+        // --search is a top-level flag, before exec: Codex's built-in web search, read-only (E11 T11.26).
+        if (settings.WebSearch) startInfo.ArgumentList.Add("--search");
         string[] arguments =
         [
             "exec", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never", "--json",
@@ -61,7 +63,7 @@ internal static class CodexCliProtocol
     {
         var prompt = new StringBuilder();
         prompt.AppendLine(companionChatRequest.SystemPrompt.Trim()).AppendLine();
-        prompt.AppendLine("Answer directly. Do not run commands, edit files or use tools.").AppendLine();
+        prompt.AppendLine("Answer directly. Do not run commands or edit files; searching the web is fine when the answer needs it.").AppendLine();
         if (companionChatRequest.ConversationHistory.Count > 0)
         {
             prompt.AppendLine("Conversation so far:");

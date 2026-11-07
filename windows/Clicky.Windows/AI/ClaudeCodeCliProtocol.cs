@@ -8,6 +8,9 @@ namespace Clicky.Windows.AI;
 
 internal static class ClaudeCodeCliProtocol
 {
+    /// <summary>E11 T11.26: the only tools Claude gets — search the web and read a page. No files, no commands.</summary>
+    internal const string WebToolNames = "WebSearch,WebFetch";
+
     public static ProcessStartInfo BuildStartInfo(ClaudeCodeCliBackendSettings settings, string systemPromptFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(settings.ExecutablePath);
@@ -27,10 +30,16 @@ internal static class ClaudeCodeCliProtocol
         string[] arguments =
         [
             "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-            "--system-prompt-file", systemPromptFilePath, "--tools", "", "--safe-mode", "--strict-mcp-config",
+            "--system-prompt-file", systemPromptFilePath, "--tools", settings.WebTools ? WebToolNames : "", "--safe-mode", "--strict-mcp-config",
             "--disable-slash-commands", "--no-session-persistence"
         ];
         foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
+        if (settings.WebTools)
+        {
+            // Print mode can't ask permission, so the two read-only web tools are pre-approved; nothing else exists.
+            startInfo.ArgumentList.Add("--allowedTools");
+            startInfo.ArgumentList.Add(WebToolNames);
+        }
         if (!string.IsNullOrWhiteSpace(settings.Model))
         {
             startInfo.ArgumentList.Add("--model");
@@ -112,6 +121,9 @@ internal static class ClaudeCodeCliProtocol
     /// </summary>
     public static string? TryGetTextDelta(string outputLine)
     {
+        // A reply that used a tool (a web search) comes as several messages; each new one starts on a fresh line.
+        if (outputLine.Contains("\"message_start\"", StringComparison.Ordinal) && outputLine.Contains("\"stream_event\"", StringComparison.Ordinal))
+            return "\n";
         if (!outputLine.Contains("\"text_delta\"", StringComparison.Ordinal)) return null; // Most lines aren't; skip parsing them.
         try
         {
