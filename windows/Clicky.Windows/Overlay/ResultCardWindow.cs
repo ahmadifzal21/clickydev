@@ -17,7 +17,7 @@ internal sealed class ResultCardWindow : Window
 {
     private static ResultCardWindow? shownCard;
 
-    private ResultCardWindow(string title, string body)
+    private ResultCardWindow(string title, string body, string? actionLabel, Action? action)
     {
         Title = "Clicky result";
         WindowStyle = WindowStyle.None;
@@ -34,6 +34,12 @@ internal sealed class ResultCardWindow : Window
         Button closeButton = CardButton("Close");
         closeButton.Click += (_, _) => Close();
         StackPanel buttons = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
+        if (actionLabel is not null && action is not null)
+        {
+            Button actionButton = CardButton(actionLabel);
+            actionButton.Click += (_, _) => { action(); Close(); };
+            buttons.Children.Add(actionButton);
+        }
         buttons.Children.Add(copyButton);
         buttons.Children.Add(closeButton);
 
@@ -70,10 +76,10 @@ internal sealed class ResultCardWindow : Window
     };
 
     /// <summary>Shows the card in the bottom-right corner of the primary work area, replacing any card already shown.</summary>
-    public static ResultCardWindow Show(string title, string body)
+    public static ResultCardWindow Show(string title, string body, string? actionLabel = null, Action? action = null)
     {
         shownCard?.Close();
-        ResultCardWindow card = new(title, body);
+        ResultCardWindow card = new(title, body, actionLabel, action);
         card.Loaded += (_, _) =>
         {
             Rect workArea = SystemParameters.WorkArea;

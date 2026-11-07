@@ -101,7 +101,7 @@ internal sealed partial class AgentJobManager(AgentSettings settings, Func<Claud
         return true;
     }
 
-    /// <summary>The [jobs] context line: jobs still going, waiting, or finished in the last 30 minutes.</summary>
+    /// <summary>The [jobs] context line: jobs still going, waiting, or finished in the last 30 minutes (id, title, status).</summary>
     public string? ContextLine()
     {
         AgentJob[] recent = [.. Jobs.Where(job => job.Status is AgentJobStatus.Working or AgentJobStatus.NeedsYou
@@ -117,8 +117,7 @@ internal sealed partial class AgentJobManager(AgentSettings settings, Func<Claud
                 AgentJobStatus.Failed => "failed",
                 _ => "stopped"
             };
-            string last = job.LastMessage.Length > 200 ? job.LastMessage[..200] + "…" : job.LastMessage;
-            return $"{job.Id} \"{job.Title}\" {status}{(last.Length > 0 ? $": {last}" : "")}";
+            return $"{job.Id} \"{job.Title}\" {status}"; // Not the agent's words: they're untrusted text; the user sees them on a card.
         }));
     }
 
@@ -213,16 +212,21 @@ internal sealed partial class AgentJobManager(AgentSettings settings, Func<Claud
         if (announce) onJobFinished(job);
     }
 
+    internal const string JobAllowedTools = "Read(./**),Edit(./**),Write(./**),WebSearch";
+    internal const string JobDeniedTools = "Bash,PowerShell,WebFetch";
+
     internal static ProcessStartInfo BuildClaudeStartInfo(ClaudeCodeCliBackendSettings claude, AgentSettings agentSettings, AgentJob job,
         string message, string? resumeSessionId)
     {
         ProcessStartInfo startInfo = NewStartInfo(claude.ExecutablePath, job.Folder);
         // The task goes as the prompt argument after "--": a new line in it survives because ArgumentList quotes it, and cmd's
         // shim is not involved for claude.exe. Print mode can't ask permission, so commands are refused; edits in the folder aren't.
+        // File tools are allowed only under the job folder (the working directory); the shell is denied outright.
         string[] arguments =
         [
             "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
-            "--allowedTools", "Read,Write,Edit,Glob,Grep,WebSearch", "--safe-mode", "--strict-mcp-config", "--disable-slash-commands"
+            "--allowedTools", JobAllowedTools, "--disallowedTools", JobDeniedTools,
+            "--safe-mode", "--strict-mcp-config", "--disable-slash-commands"
         ];
         foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
         string? model = agentSettings.Model ?? claude.Model;
