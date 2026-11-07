@@ -201,10 +201,10 @@ say("the big one turns half as fast, but with twice the force.")
 seen("asking about gear ratios")
 ```
 
-The user says their name is Ifzal and they mostly work in Visual Studio:
+The user says their name is Sam and they mostly work in Visual Studio:
 ```clicky
-say("nice to meet you, Ifzal. I'll remember that.")
-remember("name is Ifzal")
+say("nice to meet you, Sam. I'll remember that.")
+remember("name is Sam")
 remember("mostly works in Visual Studio")
 seen("introducing themselves")
 ```

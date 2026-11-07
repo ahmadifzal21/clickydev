@@ -12,10 +12,10 @@ public sealed class CompanionTurnContextTests
     {
         string context = CompanionTurnContext.Build(new DateTime(2026, 11, 7, 14, 32, 0),
             new ForegroundAppInfo(12, "Code", "settings.json - heyclicky - Visual Studio Code"), isVoice: true, walkthroughStep: 2,
-            ["[App] Last time they clicked somewhere else.", "", "[memory] name is Ifzal"]);
+            ["[App] Last time they clicked somewhere else.", "", "[memory] name is Sam"]);
 
         Assert.Equal("[context] Sat 7 Nov 14:32 · app: Code \"settings.json - heyclicky - Visual Studio Code\" · voice · walkthrough step 2\n" +
-            "[App] Last time they clicked somewhere else.\n[memory] name is Ifzal", context);
+            "[App] Last time they clicked somewhere else.\n[memory] name is Sam", context);
     }
 
     [Fact]
