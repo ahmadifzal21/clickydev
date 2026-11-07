@@ -35,6 +35,17 @@ public sealed class ScreenDrawingPreview
             layer.Add(new ScreenMark(ScreenMarkKind.ScrollHint, [new Point(880, 250)]) { Direction = "down" });
             layer.Add(new ScreenMark(ScreenMarkKind.Card, [new Point(60, 380)]) { Title = "Shortcut", Text = "Press **Ctrl+Shift+P**\n- opens the command palette\n- type to search" });
             layer.Add(new ScreenMark(ScreenMarkKind.TargetRing, [new Point(560, 450)]) { Radius = 36 });
+            layer.Add(new ScreenMark(ScreenMarkKind.Figure3D, [new Point(660, 300)])
+            {
+                Size = new Size(300, 200), Title = "Two gears",
+                Payload = new object?[] { "Two gears", new object?[]
+                {
+                    new Dictionary<string, object?> { ["shape"] = "cylinder", ["at"] = new object?[] { -1.6, 0.0, 0.0 }, ["size"] = new object?[] { 1.6, 0.4 }, ["color"] = "#4f8cff", ["label"] = "small gear" },
+                    new Dictionary<string, object?> { ["shape"] = "cylinder", ["at"] = new object?[] { 1.2, 0.0, 0.0 }, ["size"] = new object?[] { 3.2, 0.4 }, ["color"] = "#ff9f43", ["label"] = "big gear" },
+                    new Dictionary<string, object?> { ["shape"] = "arrow", ["from"] = new object?[] { -1.6, 1.2, 0.0 }, ["to"] = new object?[] { -0.4, 1.2, 0.0 }, ["color"] = "#ffffff", ["label"] = "fast" },
+                    new Dictionary<string, object?> { ["shape"] = "sphere", ["at"] = new object?[] { 0.0, 1.5, 1.0 }, ["size"] = new object?[] { 0.6 }, ["color"] = "#43d692" }
+                } }
+            });
 
             DispatcherFrame frame = new();
             DispatcherTimer timer = new(TimeSpan.FromSeconds(1.5), DispatcherPriority.Background, (_, _) => frame.Continue = false, Dispatcher.CurrentDispatcher);

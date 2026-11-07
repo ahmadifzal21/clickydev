@@ -79,6 +79,7 @@ internal sealed partial class ScreenDrawingLayer : Canvas
             ScreenMarkKind.Label => Label(mark.Anchor, mark.Text ?? ""),
             ScreenMarkKind.ScrollHint => ScrollHint(mark.Anchor, mark.Direction ?? "down"),
             ScreenMarkKind.Card => Card(mark.Anchor, mark.Title ?? "", mark.Text ?? ""),
+            ScreenMarkKind.Figure3D => Figure3DCard.Create(mark),
             _ => null
         };
         if (element is null) return;
