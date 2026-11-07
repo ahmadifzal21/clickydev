@@ -126,14 +126,31 @@ internal sealed class TypedScreenQuestionRunner(
         IReadOnlyList<CompanionScreenCapture> screenCaptures = [];
         ReplyPlayback replyPlayback = new(textToSpeechSpeaker,
             onSpeechStarting: () => interactionStateMachine.Apply(CompanionInteractionTrigger.ReplyReady), // Responding while speaking.
-            showText: cursorOverlayManager.ShowResponseText, pointAt: PointAtReplyTarget, cancellationToken);
+            showText: cursorOverlayManager.ShowResponseText, perform: PerformReplyCall, cancellationToken);
 
-        void PointAtReplyTarget(PointingParseResult pointing)
+        void PerformReplyCall(ProgramCall call)
         {
-            if (CompanionScreenQuestion.ResolvePointTarget(pointing, screenCaptures) is not { } pointTarget) return;
-            Trace.WriteLine($"Pointing at \"{pointing.ElementLabel}\" ({pointTarget.X}, {pointTarget.Y}) physical px.");
-            cursorOverlayManager.PointAt(pointTarget.X, pointTarget.Y, pointing.ElementLabel);
-            TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.Pointed, pointing.ElementLabel ?? "");
+            switch (call.Name)
+            {
+                case "point" when call.LeadingNumbers() is [var x, var y, ..]:
+                    PointAtReplyTarget(x, y, call.ScreenNumber, call.Label);
+                    break;
+                case "click" or "hover" when call.LeadingNumbers() is [var left, var top, var right, var bottom, ..]:
+                    PointAtReplyTarget((left + right) / 2, (top + bottom) / 2, call.ScreenNumber, call.Label);
+                    break;
+                default:
+                    Trace.WriteLine($"Reply call not handled: {call}");
+                    break;
+            }
+        }
+
+        void PointAtReplyTarget(double x, double y, int? screenNumber, string? label)
+        {
+            if (CompanionScreenQuestion.ResolveScreenshotPoint(new ScreenshotPixelCoordinate(x, y), screenNumber, screenCaptures)
+                is not { } pointTarget) return;
+            Trace.WriteLine($"Pointing at \"{label}\" ({pointTarget.X}, {pointTarget.Y}) physical px.");
+            cursorOverlayManager.PointAt(pointTarget.X, pointTarget.Y, label);
+            TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.Pointed, label ?? "");
         }
 
         async Task PlayTheReplyAsItArrivesAsync()
@@ -173,13 +190,12 @@ internal sealed class TypedScreenQuestionRunner(
             Trace.WriteLine($"Reply text ({routedResponse.AnsweringBackendKind}): {routedResponse.ResponseText.ReplaceLineEndings(" | ")}");
 
             replyPlayback.Finish(routedResponse.ResponseText);
-            conversationHistory.Record(userQuestion, routedResponse.ResponseText);
+            conversationHistory.Record(userQuestion, replyPlayback.HistoryText);
             bubbleText = replyPlayback.VisibleText;
             // Responding (or Idle) before pointing: both draw the triangle, which the spinner would hide during the flight.
             if (!replyPlayback.HasStartedSpeaking) interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
             ShowFinishedResponse(bubbleText);
-            replyPlayback.PointAtLastTargetIfSilent();
-            await replyPlayback.Speech;
+            await replyPlayback.WaitUntilPlayedAsync();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

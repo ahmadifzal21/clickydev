@@ -268,13 +268,56 @@ public class ScreenQuestionAnswerTests
     }
 
     [Fact]
-    public void WithoutSpeech_TheCursorGoesToTheLastTarget()
+    public void WithoutSpeech_EachStepPointsInTurn_AfterTheLineBeforeHadItsReadingTime()
     {
+        System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
         (_, _, List<string> pointedLabels) = RunReply(
             "open file. [POINT:24,12:file menu]\nthen export. [POINT:60,410:export]", withSpeaker: false);
 
-        Assert.Equal(["export"], pointedLabels);
+        Assert.Equal(["file menu", "export"], pointedLabels);
+        Assert.True(stopwatch.Elapsed >= ReplyPlayback.ReadingTime(2), $"took {stopwatch.Elapsed}");
     }
+
+    [Fact]
+    public void ProgramReply_SpeaksEachSay_AndPointsAtItsMarksWhileThatLineIsSpoken()
+    {
+        (string bubbleText, FakeSpeaker speaker, List<string> pointedLabels) = RunReply("""
+            ```clicky
+            step(1)
+            say("open the file menu up top.")
+            point(24, 12, "file menu")
+            say("then pick export.");  click(40, 400, 80, 420, "export")
+            seen("exporting a document in Word")
+            ```
+            """);
+
+        Assert.Equal(["open the file menu up top.", "then pick export."], speaker.SpokenTexts);
+        Assert.Equal(["file menu", "export"], pointedLabels);
+        Assert.Equal("open the file menu up top.\nthen pick export.", bubbleText);
+    }
+
+    [Fact]
+    public void ProgramReply_StreamedInPieces_StartsSpeakingTheFirstSayBeforeTheRestArrives() =>
+        StaTestThread.Run(() =>
+        {
+            using DisplayMonitorCatalog displayMonitorCatalog = new();
+            using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+            FakeSpeaker speaker = new();
+            List<string> spokenWhileStreaming = [];
+            StreamingBackend backend = new(["```clicky\nsay(\"that's the save", " button.\")\npoint(5, 5, \"save\")\n", "say(\"click it.\")\n```"])
+            {
+                AfterPiece = index => { if (index == 1) spokenWhileStreaming.AddRange(speaker.SpokenTexts); return Task.CompletedTask; }
+            };
+            ChatBackendRouter router = new(() => new JobBackendRouting { Answer = ChatBackendKind.ClaudeCodeCli, Fallback = null }, [backend]);
+            CompanionConversationHistory history = new();
+            TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, history, textToSpeechSpeaker: speaker);
+
+            StaTestThread.WaitFor(runner.AnswerAsync("where is save"));
+
+            Assert.Equal(["that's the save button."], spokenWhileStreaming);
+            Assert.Equal(["that's the save button.", "click it."], speaker.SpokenTexts);
+            Assert.Equal("that's the save button.\nclick it.\n[showed: save]", history.GetExchanges()[0].AssistantResponse);
+        });
 
     [Fact]
     public void PointNone_PointsNowhere_AndIsNotSpoken()

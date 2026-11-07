@@ -32,7 +32,7 @@ internal static class CompanionPanelText
     /// </summary>
     public static string? GetTurnNote(CompanionTurnEvent turnEvent) => turnEvent.Kind switch
     {
-        CompanionTurnEventKind.ReplyReady => "Answered: " + PointTagParser.ParsePointingCoordinates(turnEvent.Text).SpokenText.Trim(),
+        CompanionTurnEventKind.ReplyReady => "Answered: " + ReplyProgramReader.ReadAll(turnEvent.Text).VisibleText,
         CompanionTurnEventKind.Failed => turnEvent.Text,
         _ => null
     };

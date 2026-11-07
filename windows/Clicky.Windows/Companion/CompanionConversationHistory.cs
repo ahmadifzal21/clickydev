@@ -17,8 +17,8 @@ public sealed class CompanionConversationHistory
     public IReadOnlyList<ConversationExchange> GetExchanges() => exchanges.ToArray();
 
     /// <summary>
-    /// Stores the exchange with the trailing [POINT] tag stripped (Mac: "so it doesn't confuse future context"),
-    /// dropping the oldest exchanges beyond the cap.
+    /// Stores the exchange, dropping the oldest beyond the cap. The runner passes the reply's history text (spoken lines, what
+    /// was shown, seen notes; E11 T11.7); a trailing [POINT] tag is still stripped (Mac: "so it doesn't confuse future context").
     /// </summary>
     public void Record(string userTranscript, string fullResponseText)
     {

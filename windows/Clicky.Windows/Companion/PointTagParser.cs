@@ -35,6 +35,27 @@ public static class PointTagParser
         @"\[POINT:(?:none|(\d+)\s*,\s*(\d+)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?)\]\s*$",
         RegexOptions.CultureInvariant);
 
+    // The same tag anywhere in a line (E11: prose replies may put a tag right after the words it belongs to).
+    private static readonly Regex PointTagAnywhereRegex = new(
+        @"\[POINT:(?:none|(\d+)\s*,\s*(\d+)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?)\]",
+        RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Every [POINT] tag in <paramref name="lineText"/>, in order, with the text that's left to speak. [POINT:none] tags are
+    /// dropped. Used for prose replies (a model that ignored the program format, or an old reply in history).
+    /// </summary>
+    public static (string SpokenText, IReadOnlyList<PointingParseResult> Tags) ExtractTags(string lineText)
+    {
+        List<PointingParseResult> tags = [];
+        foreach (Match tagMatch in PointTagAnywhereRegex.Matches(lineText))
+        {
+            PointingParseResult tag = ParsePointingCoordinates(tagMatch.Value);
+            if (tag.ScreenshotCoordinate is not null) tags.Add(tag);
+        }
+        string spokenText = Regex.Replace(PointTagAnywhereRegex.Replace(lineText, ""), @"[ \t]{2,}", " ").Trim();
+        return (spokenText, tags);
+    }
+
     public static PointingParseResult ParsePointingCoordinates(string responseText)
     {
         Match pointTagMatch = PointTagAtEndOfResponseRegex.Match(responseText);

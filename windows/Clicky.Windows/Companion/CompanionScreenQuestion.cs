@@ -25,14 +25,22 @@ internal static class CompanionScreenQuestion
     /// Physical virtual-screen pixel to point at, or null for [POINT:none] / no tag. ":screenN" picks that capture (1-based, in
     /// the order sent); without it, or when N is out of range, the cursor's screen is used — the Mac's rule.
     /// </summary>
-    public static Point? ResolvePointTarget(PointingParseResult pointingParseResult, IReadOnlyList<CompanionScreenCapture> screenCaptures)
-    {
-        if (pointingParseResult.ScreenshotCoordinate is not { } screenshotCoordinate) return null;
-        CompanionScreenCapture? targetCapture =
-            pointingParseResult.ScreenNumber is { } screenNumber && screenNumber >= 1 && screenNumber <= screenCaptures.Count
-                ? screenCaptures[screenNumber - 1]
-                : screenCaptures.FirstOrDefault(capture => capture.IsCursorScreen);
-        return targetCapture is null ? null : OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels(
-            targetCapture.CapturedMonitor, screenshotCoordinate, targetCapture.ScreenshotWidthPixels, targetCapture.ScreenshotHeightPixels);
-    }
+    public static Point? ResolvePointTarget(PointingParseResult pointingParseResult, IReadOnlyList<CompanionScreenCapture> screenCaptures) =>
+        pointingParseResult.ScreenshotCoordinate is { } screenshotCoordinate
+            ? ResolveScreenshotPoint(screenshotCoordinate, pointingParseResult.ScreenNumber, screenCaptures)
+            : null;
+
+    /// <summary>A reply program's coordinate (screenshot pixels on screen <paramref name="screenNumber"/>) as a physical pixel.</summary>
+    public static Point? ResolveScreenshotPoint(ScreenshotPixelCoordinate screenshotCoordinate, int? screenNumber,
+        IReadOnlyList<CompanionScreenCapture> screenCaptures) =>
+        CaptureForScreen(screenNumber, screenCaptures) is { } targetCapture
+            ? OverlayCoordinateMapper.ScreenshotPixelsToPhysicalPixels(targetCapture.CapturedMonitor, screenshotCoordinate,
+                targetCapture.ScreenshotWidthPixels, targetCapture.ScreenshotHeightPixels)
+            : null;
+
+    /// <summary>The capture a 1-based screen number names, or the cursor's screen without one (or when it is out of range).</summary>
+    public static CompanionScreenCapture? CaptureForScreen(int? screenNumber, IReadOnlyList<CompanionScreenCapture> screenCaptures) =>
+        screenNumber is { } number && number >= 1 && number <= screenCaptures.Count
+            ? screenCaptures[number - 1]
+            : screenCaptures.FirstOrDefault(capture => capture.IsCursorScreen);
 }
