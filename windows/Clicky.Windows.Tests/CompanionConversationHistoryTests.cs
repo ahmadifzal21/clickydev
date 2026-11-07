@@ -30,6 +30,17 @@ public class CompanionConversationHistoryTests
     }
 
     [Fact]
+    public void Version_CountsEveryExchangeEver_AndDroppedOnesLeaveTheirSeenNotes()
+    {
+        var history = new CompanionConversationHistory();
+        Assert.Null(history.EarlierSummary);
+        for (int index = 1; index <= 12; index++) history.Record($"q{index}", $"a{index}\n[showed: x]\n[seen: doing thing {index}]");
+
+        Assert.Equal(12, history.Version);
+        Assert.Equal("[earlier] doing thing 1; doing thing 2", history.EarlierSummary);
+    }
+
+    [Fact]
     public void GetExchanges_ReturnsASnapshot()
     {
         var history = new CompanionConversationHistory();

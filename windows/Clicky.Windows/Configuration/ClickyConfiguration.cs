@@ -135,6 +135,12 @@ public sealed class ClaudeCodeCliBackendSettings
     /// <summary>Passed as --effort (low, medium, high, xhigh, max). Low: a short spoken answer with marks needs little thinking.</summary>
     public string? Effort { get; set; } = "low";
 
+    /// <summary>
+    /// Keep one Claude Code process across turns (E11 T11.18): a follow-up skips start-up and history replay, and earlier
+    /// screenshots stay in its context. False starts one process per question, as before.
+    /// </summary>
+    public bool KeepSessionAlive { get; set; } = true;
+
     public int ResponseTimeoutSeconds { get; set; } = 120;
 }
 

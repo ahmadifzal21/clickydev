@@ -25,6 +25,12 @@ public sealed record CompanionChatRequest(
 {
     /// <summary>The app's [context] lines for this turn (E11 T11.19), sent before the screenshots and the user's words.</summary>
     public string? TurnContext { get; init; }
+
+    /// <summary>
+    /// How many exchanges the conversation had recorded when this request was built (it only grows, past the 10 that are kept).
+    /// A live Claude session holding exactly that conversation takes only the new turn (E11 T11.18); null means no session.
+    /// </summary>
+    public long? HistoryVersion { get; init; }
 }
 
 /// <summary>
@@ -37,6 +43,9 @@ public interface ICompanionChatBackend
 
     /// <summary>Human-readable name for the tray menu, e.g. "Claude Code CLI".</summary>
     string DisplayName { get; }
+
+    /// <summary>Clicky is quitting: stop anything kept alive between requests.</summary>
+    void Shutdown() => DiscardPrestarted();
 
     /// <summary>
     /// Sends the request and returns the full reply text. Throws on failure or timeout,

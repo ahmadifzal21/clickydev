@@ -65,6 +65,12 @@ internal sealed class ChatBackendRouter(Func<JobBackendRouting> getCurrentRoutin
         foreach (ICompanionChatBackend chatBackend in chatBackendsByKind.Values) chatBackend.DiscardPrestarted();
     }
 
+    /// <summary>Clicky is quitting: every backend stops what it keeps alive (prestarted processes, a Claude session).</summary>
+    public void Shutdown()
+    {
+        foreach (ICompanionChatBackend chatBackend in chatBackendsByKind.Values) chatBackend.Shutdown();
+    }
+
     private async Task<RoutedChatResponse> GetResponseFromAsync(
         ChatBackendKind chatBackendKind, CompanionChatRequest companionChatRequest, CancellationToken cancellationToken,
         Action<string>? onTextDelta)

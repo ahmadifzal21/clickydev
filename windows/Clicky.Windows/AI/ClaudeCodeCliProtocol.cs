@@ -72,6 +72,10 @@ internal static class ClaudeCodeCliProtocol
         return input.ToString();
     }
 
+    /// <summary>Only the current turn's user message: a live session already holds the conversation (E11 T11.18).</summary>
+    public static string SerializeCurrentTurn(CompanionChatRequest companionChatRequest) =>
+        SerializeUserMessage(BuildCurrentUserContentBlocks(companionChatRequest), shouldQuery: true) + "\n";
+
     /// <summary>
     /// Anthropic Messages content for the current turn, like the Mac: each image followed by its label, then the question.
     /// Shared with the Cloudflare Worker backend, which sends the same Messages API shape.

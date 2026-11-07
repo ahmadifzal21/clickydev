@@ -274,7 +274,7 @@ public partial class App : Application
         pushToTalkKeyboardHook?.Dispose();
         guidedWalkthrough?.Dispose();
         globalMouseHook?.Dispose();
-        typedScreenQuestionRunner?.DiscardPrestartedAnswer(); // Its CLI process would outlive Clicky otherwise.
+        typedScreenQuestionRunner?.Shutdown(); // A prestarted CLI process or the Claude session would outlive Clicky otherwise.
         speechToTextTranscriber?.Dispose();
         textToSpeechSpeaker?.Dispose();
 

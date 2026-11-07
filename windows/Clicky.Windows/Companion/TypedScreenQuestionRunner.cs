@@ -74,6 +74,9 @@ internal sealed class TypedScreenQuestionRunner(
     /// <summary>The press led to no question (a tap, an empty transcript) or Clicky is quitting: kill the prestarted process.</summary>
     public void DiscardPrestartedAnswer() => chatBackendRouter.DiscardPrestarted();
 
+    /// <summary>Clicky is quitting: no CLI process may outlive it.</summary>
+    public void Shutdown() => chatBackendRouter.Shutdown();
+
     /// <summary>The press's capture for the voice turn that follows it (null if there was none); each capture is used once.</summary>
     public Task<IReadOnlyList<CompanionScreenCapture>>? TakeCaptureFromPress()
     {
@@ -229,10 +232,10 @@ internal sealed class TypedScreenQuestionRunner(
             try
             {
                 string turnContext = CompanionTurnContext.Build(DateTime.Now, frontApp, isVoice, trigger.WalkthroughStep,
-                    [.. appNotes, .. TurnContextSources.SelectMany(source => source())]);
+                    [.. appNotes, conversationHistory.EarlierSummary ?? "", .. TurnContextSources.SelectMany(source => source())]);
                 routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
                     CompanionScreenQuestion.BuildChatRequest(userPrompt, screenCaptures, conversationHistory.GetExchanges())
-                        with { TurnContext = turnContext },
+                        with { TurnContext = turnContext, HistoryVersion = conversationHistory.Version },
                     cancellationToken, textDelta =>
                     {
                         TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.TextDelta, textDelta);
