@@ -334,11 +334,13 @@ internal sealed class TypedScreenQuestionRunner(
         if (cursorOverlayManager.HasDrawing) Walkthrough.WatchDrawing(monitorBounds);
     }
 
-    private void PrestartTheNextStep()
-    {
-        if (chatBackendRouter.RoutedBackend(CompanionJobKind.Answer) == ChatBackendKind.ClaudeCodeCli)
-            chatBackendRouter.Prestart(CompanionJobKind.Answer, CompanionSystemPrompts.CompanionVoiceResponseSystemPrompt, []);
-    }
+    /// <summary>
+    /// Starts the next step's CLI while the user reaches for the mouse. The step's screenshots don't exist yet: Claude's prestart
+    /// matches on the prompt alone, and Codex's reserves one image file per monitor and gets the pictures at send time.
+    /// </summary>
+    private void PrestartTheNextStep() =>
+        chatBackendRouter.Prestart(CompanionJobKind.Answer, CompanionSystemPrompts.CompanionVoiceResponseSystemPrompt,
+            displayMonitorCatalog.Monitors.Select(_ => new LabeledScreenshotImage([], "")).ToArray());
 
     private static async Task SpeakErrorLineAsync(ITextToSpeechSpeaker textToSpeechSpeaker, CancellationToken cancellationToken)
     {

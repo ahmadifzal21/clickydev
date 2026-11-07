@@ -7,9 +7,11 @@ namespace Clicky.Windows.AI;
 
 /// <summary>
 /// One ephemeral, read-only <c>codex exec</c> run per request, using the user's existing Codex login. Codex only takes images
-/// as files, so each request gets its own temp folder (screenshots + last-message file) that is deleted afterwards. A
-/// push-to-talk press can prestart the run once its screenshots exist (<see cref="Prestart"/>): Codex spends about 1.5 s
-/// starting up before it reads the prompt from stdin.
+/// as files, so each request gets its own temp folder (screenshots + last-message file) that is deleted afterwards. A run can be
+/// prestarted (<see cref="Prestart"/>): Codex spends about 1.5 s starting up before it reads the prompt from stdin. It reads its
+/// --image files only after stdin is complete (checked against codex-cli, E11 T11.22), so a prestarted run reserves the image
+/// paths and the request writes the screenshots there just before sending the prompt: a walkthrough step can prestart before
+/// its screenshot exists.
 /// </summary>
 internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : ICompanionChatBackend
 {
@@ -18,15 +20,15 @@ internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : IC
     public ChatBackendKind BackendKind => ChatBackendKind.CodexCli;
     public string DisplayName => "Codex CLI";
 
-    /// <summary>What a prestarted run was started with; it suits a request with these exact screenshots (same byte arrays).</summary>
-    private sealed record PrestartKey(IReadOnlyList<byte[]> ScreenshotBytes, string ExecutablePath, string? Model)
+    /// <summary>What a prestarted run was started with; it suits a request with as many screenshots and the same settings.</summary>
+    private sealed record PrestartKey(int ScreenshotCount, string ExecutablePath, string? Model, string? ReasoningEffort)
     {
         public bool Suits(IReadOnlyList<LabeledScreenshotImage> screenshots, CodexCliBackendSettings currentSettings) =>
             ExecutablePath == currentSettings.ExecutablePath && Model == currentSettings.Model &&
-            ScreenshotBytes.Count == screenshots.Count &&
-            ScreenshotBytes.Zip(screenshots, (bytes, screenshot) => ReferenceEquals(bytes, screenshot.JpegImageBytes)).All(isSame => isSame);
+            ReasoningEffort == currentSettings.ReasoningEffort && ScreenshotCount == screenshots.Count;
     }
 
+    /// <summary>Screenshots with no bytes yet (a walkthrough step before its capture) only reserve their files.</summary>
     public void Prestart(string systemPrompt, IReadOnlyList<LabeledScreenshotImage> screenshots)
     {
         string requestDirectory = NewRequestDirectory();
@@ -36,7 +38,7 @@ internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : IC
             CliChatProcess chatProcess = CliChatProcess.Start(CodexCliProtocol.BuildStartInfo(
                 settings, screenshotFilePaths, LastMessageFilePath(requestDirectory), requestDirectory));
             prestartedProcess.Put(new PrestartedCliProcess(chatProcess,
-                new PrestartKey(screenshots.Select(screenshot => screenshot.JpegImageBytes).ToArray(), settings.ExecutablePath, settings.Model),
+                new PrestartKey(screenshots.Count, settings.ExecutablePath, settings.Model, settings.ReasoningEffort),
                 requestDirectory, () => _ = DeleteRequestDirectoryAsync(requestDirectory)));
         }
         catch (Exception exception)
@@ -70,6 +72,8 @@ internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : IC
             (string StandardOutput, string StandardError, int ExitCode) result;
             if (prestarted is not null)
             {
+                // The run was started with these paths; the screenshots (the same ones, or the step's fresh ones) go there now.
+                await Task.Run(() => WriteScreenshots(requestDirectory, companionChatRequest.LabeledScreenshotImages), cancellationToken).ConfigureAwait(false);
                 result = await prestarted.Process.SendAsync(prompt, responseTimeout, cancellationToken, onOutputLine).ConfigureAwait(false);
             }
             else
@@ -115,7 +119,7 @@ internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : IC
         for (int index = 0; index < screenshots.Count; index++)
         {
             string screenshotFilePath = Path.Combine(requestDirectory, $"screen-{index + 1}.jpg");
-            File.WriteAllBytes(screenshotFilePath, screenshots[index].JpegImageBytes);
+            if (screenshots[index].JpegImageBytes.Length > 0) File.WriteAllBytes(screenshotFilePath, screenshots[index].JpegImageBytes);
             screenshotFilePaths.Add(screenshotFilePath);
         }
         return screenshotFilePaths;
