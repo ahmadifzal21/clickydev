@@ -36,6 +36,11 @@ internal static class ClaudeCodeCliProtocol
             startInfo.ArgumentList.Add("--model");
             startInfo.ArgumentList.Add(settings.Model);
         }
+        if (!string.IsNullOrWhiteSpace(settings.Effort))
+        {
+            startInfo.ArgumentList.Add("--effort");
+            startInfo.ArgumentList.Add(settings.Effort);
+        }
         return startInfo;
     }
 

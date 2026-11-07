@@ -79,8 +79,8 @@ internal sealed class ClaudeCodeCliChatBackend(ClaudeCodeCliBackendSettings sett
         }
     }
 
-    /// <summary>A prestarted process suits a request with the same system prompt, executable and model (settings can change).</summary>
-    private object GetMatchKey(string systemPrompt) => (systemPrompt, settings.ExecutablePath, settings.Model);
+    /// <summary>A prestarted process suits a request with the same system prompt, executable, model and effort (settings can change).</summary>
+    private object GetMatchKey(string systemPrompt) => (systemPrompt, settings.ExecutablePath, settings.Model, settings.Effort);
 
     private static string NewSystemPromptFilePath() => Path.Combine(Path.GetTempPath(), $"clicky-claude-{Guid.NewGuid():N}.txt");
 

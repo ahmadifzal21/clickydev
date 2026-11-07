@@ -40,6 +40,11 @@ internal static class CodexCliProtocol
             startInfo.ArgumentList.Add("--model");
             startInfo.ArgumentList.Add(settings.Model);
         }
+        if (!string.IsNullOrWhiteSpace(settings.ReasoningEffort))
+        {
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add($"model_reasoning_effort=\"{settings.ReasoningEffort}\"");
+        }
         foreach (string screenshotFilePath in screenshotFilePaths)
         {
             startInfo.ArgumentList.Add("--image");

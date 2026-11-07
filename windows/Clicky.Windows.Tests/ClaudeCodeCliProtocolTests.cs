@@ -21,7 +21,7 @@ public class ClaudeCodeCliProtocolTests
     public void Arguments_PassPromptByFileAndModelLiteral_AndDisableActionsAndPersistence()
     {
         const string systemPromptFilePath = @"C:\Temp Dir\clicky-claude-1.txt";
-        var settings = new ClaudeCodeCliBackendSettings { ExecutablePath = @"C:\Claude Code\claude.exe", Model = "opus" };
+        var settings = new ClaudeCodeCliBackendSettings { ExecutablePath = @"C:\Claude Code\claude.exe", Model = "opus", Effort = "low" };
 
         var startInfo = ClaudeCodeCliProtocol.BuildStartInfo(settings, systemPromptFilePath);
 
@@ -30,7 +30,7 @@ public class ClaudeCodeCliProtocolTests
         {
             "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
             "--system-prompt-file", systemPromptFilePath, "--tools", "", "--safe-mode", "--strict-mcp-config",
-            "--disable-slash-commands", "--no-session-persistence", "--model", "opus"
+            "--disable-slash-commands", "--no-session-persistence", "--model", "opus", "--effort", "low"
         }, startInfo.ArgumentList);
         Assert.False(startInfo.UseShellExecute);
         Assert.True(startInfo.CreateNoWindow);
@@ -45,9 +45,10 @@ public class ClaudeCodeCliProtocolTests
     [InlineData(" ")]
     public void UnspecifiedModel_UsesCliDefault(string? model)
     {
-        var startInfo = ClaudeCodeCliProtocol.BuildStartInfo(new ClaudeCodeCliBackendSettings { Model = model }, "prompt");
+        var startInfo = ClaudeCodeCliProtocol.BuildStartInfo(new ClaudeCodeCliBackendSettings { Model = model, Effort = model }, "prompt");
 
         Assert.DoesNotContain("--model", startInfo.ArgumentList);
+        Assert.DoesNotContain("--effort", startInfo.ArgumentList);
     }
 
     [Fact]

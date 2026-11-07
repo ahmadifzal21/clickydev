@@ -19,13 +19,13 @@ public class CodexCliProtocolTests
     public void BuildStartInfo_IsReadOnlyEphemeralWithOneImageFlagPerScreenshotAndPromptOnStdin()
     {
         var startInfo = CodexCliProtocol.BuildStartInfo(
-            new CodexCliBackendSettings { ExecutablePath = "codex", Model = "gpt-test" },
+            new CodexCliBackendSettings { ExecutablePath = "codex", Model = "gpt-test", ReasoningEffort = "low" },
             [@"C:\t\screen-1.jpg", @"C:\t\screen 2.jpg"], @"C:\t\last-message.txt", @"C:\t");
 
         Assert.Equal(
             [
                 "exec", "--ignore-user-config", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--color", "never", "--json",
-                "--output-last-message", @"C:\t\last-message.txt", "--model", "gpt-test",
+                "--output-last-message", @"C:\t\last-message.txt", "--model", "gpt-test", "-c", "model_reasoning_effort=\"low\"",
                 "--image", @"C:\t\screen-1.jpg", "--image", @"C:\t\screen 2.jpg", "--", "-"
             ],
             startInfo.ArgumentList);
@@ -37,9 +37,10 @@ public class CodexCliProtocolTests
     [Fact]
     public void BuildStartInfo_WithoutModelOrImages_OmitsThoseFlags()
     {
-        var startInfo = CodexCliProtocol.BuildStartInfo(new CodexCliBackendSettings(), [], "out.txt", ".");
+        var startInfo = CodexCliProtocol.BuildStartInfo(new CodexCliBackendSettings { ReasoningEffort = null }, [], "out.txt", ".");
 
         Assert.DoesNotContain("--model", startInfo.ArgumentList);
+        Assert.DoesNotContain("-c", startInfo.ArgumentList);
         Assert.DoesNotContain("--image", startInfo.ArgumentList);
         Assert.Equal(["--", "-"], startInfo.ArgumentList.TakeLast(2));
     }

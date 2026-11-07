@@ -132,6 +132,9 @@ public sealed class ClaudeCodeCliBackendSettings
     /// <summary>Passed as --model. An alias like "sonnet" or "opus" tracks the latest model.</summary>
     public string? Model { get; set; } = "sonnet";
 
+    /// <summary>Passed as --effort (low, medium, high, xhigh, max). Low: a short spoken answer with marks needs little thinking.</summary>
+    public string? Effort { get; set; } = "low";
+
     public int ResponseTimeoutSeconds { get; set; } = 120;
 }
 
@@ -142,6 +145,9 @@ public sealed class CodexCliBackendSettings
 
     /// <summary>Passed as -m. Null uses whatever ~/.codex/config.toml defaults to.</summary>
     public string? Model { get; set; }
+
+    /// <summary>Passed as -c model_reasoning_effort=... Low cuts most of Codex's thinking time before the first word.</summary>
+    public string? ReasoningEffort { get; set; } = "low";
 
     public int ResponseTimeoutSeconds { get; set; } = 120;
 }
