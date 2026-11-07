@@ -182,15 +182,16 @@ internal sealed partial class GuidedWalkthrough : IDisposable
     }
 
     /// <summary>
-    /// After a reply that opened a Settings page: once it's on screen, the next step follows without the user asking again
-    /// (the parity run had them repeat "turn on dark mode" three times while nothing looked at the page that opened).
+    /// After a reply opened a page (a Settings page, or a web link the user opened from its card): once it's on screen, the
+    /// next step follows without the user asking again (the parity run had them repeat "turn on dark mode" three times while
+    /// nothing looked at the page that opened). <paramref name="whatOpened"/> starts with "The".
     /// </summary>
-    public void ContinueAfterOpen(PixelRect monitorBounds, int step, string page)
+    public void ContinueAfterOpen(PixelRect monitorBounds, int step, string whatOpened)
     {
         if (target is not null || step >= MaximumSteps) return;
         stepWatch = (monitorBounds, null, step, clock.Elapsed); // No baseline: it counts as changed; a new question still stops it.
-        _ = CheckStepAsync(stepWatch.Value, "had Settings opened for them",
-            $"[App] The Settings page you opened ({page}) is in front now. Carry on from what it shows: point at what to change next, or say it's already set.");
+        _ = CheckStepAsync(stepWatch.Value, "had a page opened",
+            $"[App] {whatOpened} is in front now. Carry on from what it shows: give the next step, or say it's done or already set.");
     }
 
     /// <summary>After a reply's marks are done: they're cleared once the screen changes under them.</summary>

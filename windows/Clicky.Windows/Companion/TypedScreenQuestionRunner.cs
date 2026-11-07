@@ -156,6 +156,7 @@ internal sealed class TypedScreenQuestionRunner(
 
     /// <summary>The walkthrough step the last reply was on (its step(n)); a follow-up continues from it.</summary>
     private int walkthroughStep;
+    private int latestTurnId;
 
     /// <summary>The next step's turn, after the user did what the last one asked (clicked its target, or acted on screen).</summary>
     public Task<string> AnswerFollowUpAsync(TurnTrigger trigger) => AnswerAsync("", trigger: trigger);
@@ -186,6 +187,7 @@ internal sealed class TypedScreenQuestionRunner(
     {
         trigger ??= TurnTrigger.Question;
         int thisTurnId = turnId ?? TurnEventLog.StartTurn(trigger.IsWalkthrough ? trigger.Kind.ToString() : "question");
+        latestTurnId = thisTurnId;
         if (!trigger.IsWalkthrough) walkthroughStep = 0;
         IReadOnlyList<string> appNotes = Walkthrough?.TakeNotes() ?? [];
         bool isVoice = trigger.IsWalkthrough ? lastQuestionWasVoice : screenCapturesTask is not null || turnId is not null;
@@ -200,7 +202,8 @@ internal sealed class TypedScreenQuestionRunner(
         string userPrompt = CompanionScreenQuestion.BuildUserPrompt(userQuestion, trigger);
         string historyUserText = userQuestion.Length > 0 ? userQuestion : trigger.AppFact ?? "";
         bool armedATargetThisTurn = false;
-        string? openedSettingsPage = null;
+        string? openedPage = null; // "The ... page", once opened: the walkthrough carries on from it after the reply.
+        bool replyPlayed = false;
         int armedTargetLine = -1;
         // Untrusted text reached the model this turn (a page's text, web results): side effects need the user's own click.
         // The tainted exchange is recorded as version+1; it stays in the history for 10 exchanges and its seen note in [earlier]
@@ -283,9 +286,17 @@ internal sealed class TypedScreenQuestionRunner(
                     // could have asked for it, and a link can carry data out.
                     if (link.TrimStart().StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (CompanionActions.Open(link)) openedSettingsPage = link.Trim() is { Length: > 60 } longLink ? longLink[..60] : link.Trim();
+                        if (CompanionActions.Open(link)) openedPage = $"The Settings page you opened ({(link.Trim() is { Length: > 60 } longLink ? longLink[..60] : link.Trim())})";
                     }
-                    else if (CompanionActions.IsAllowedLink(link, out _)) ResultCardWindow.Show("Open this link?", link, "Open", () => CompanionActions.Open(link));
+                    else if (CompanionActions.IsAllowedLink(link, out Uri? webUri)) ResultCardWindow.Show("Open this link?", link, "Open", () =>
+                    {
+                        if (!CompanionActions.Open(link)) return;
+                        // Only the host: the rest of a link the model wrote could carry text from the page into an [App] line.
+                        string page = $"The web page they opened from your card ({webUri!.Host})";
+                        // Opened while the reply still plays: it carries on once played. Later: now, unless another turn started.
+                        if (!replyPlayed) openedPage = page;
+                        else if (latestTurnId == thisTurnId && !cancellationToken.IsCancellationRequested) ContinueAfterOpen(page, screenCaptures);
+                    });
                     break;
                 case "agent" when call.Arguments.OfType<string>().ToArray() is [var jobTitle, var jobTask, ..]:
                     // A job writes files and runs for minutes: it starts only from the user's own click on its card.
@@ -384,7 +395,8 @@ internal sealed class TypedScreenQuestionRunner(
             ShowFinishedResponse(bubbleText);
             walkthroughStep = replyPlayback.Step ?? trigger.WalkthroughStep ?? walkthroughStep;
             await replyPlayback.WaitUntilPlayedAsync();
-            WatchForTheNextStep(replyPlayback, armedATargetThisTurn, openedSettingsPage, screenCaptures, cancellationToken);
+            replyPlayed = true;
+            WatchForTheNextStep(replyPlayback, armedATargetThisTurn, openedPage, screenCaptures, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -476,23 +488,26 @@ internal sealed class TypedScreenQuestionRunner(
     /// After a reply has played: a step without a target whose last line tells the user to do something arms the step
     /// watcher; any marks left on screen are watched so they go once the screen changes under them.
     /// </summary>
-    private void WatchForTheNextStep(ReplyPlayback replyPlayback, bool armedATarget, string? openedSettingsPage,
+    private void WatchForTheNextStep(ReplyPlayback replyPlayback, bool armedATarget, string? openedPage,
         IReadOnlyList<CompanionScreenCapture> screenCaptures, CancellationToken cancellationToken)
     {
         if (Walkthrough is null || cancellationToken.IsCancellationRequested) return;
         if (screenCaptures.FirstOrDefault(capture => capture.IsCursorScreen) is not { } cursorCapture) return;
         PixelRect monitorBounds = cursorCapture.CapturedMonitor.Bounds;
-        if (!armedATarget && openedSettingsPage is not null)
-        {
-            Walkthrough.ContinueAfterOpen(monitorBounds, Math.Max(1, walkthroughStep), openedSettingsPage);
-            PrestartTheNextStep();
-        }
+        if (!armedATarget && openedPage is not null) ContinueAfterOpen(openedPage, screenCaptures);
         else if (!armedATarget && replyPlayback.HasMarks && GuidedWalkthrough.IsInstruction(replyPlayback.LastLineText))
         {
             Walkthrough.ArmStepWatch(monitorBounds, Math.Max(1, walkthroughStep));
             PrestartTheNextStep();
         }
         if (cursorOverlayManager.HasDrawing) Walkthrough.WatchDrawing(monitorBounds);
+    }
+
+    private void ContinueAfterOpen(string whatOpened, IReadOnlyList<CompanionScreenCapture> screenCaptures)
+    {
+        if (Walkthrough is null || screenCaptures.FirstOrDefault(capture => capture.IsCursorScreen) is not { } cursorCapture) return;
+        Walkthrough.ContinueAfterOpen(cursorCapture.CapturedMonitor.Bounds, Math.Max(1, walkthroughStep), whatOpened);
+        PrestartTheNextStep();
     }
 
     /// <summary>

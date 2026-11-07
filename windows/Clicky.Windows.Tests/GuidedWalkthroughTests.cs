@@ -246,7 +246,7 @@ public sealed class GuidedWalkthroughTests
     public void AfterOpeningSettings_TheNextStepFollowsWithoutAQuestion() => StaTestThread.Run(() =>
     {
         Harness harness = new(new FakeScreen(Picture(10)));
-        harness.Walkthrough.ContinueAfterOpen(Monitor, step: 1, "ms-settings:colors");
+        harness.Walkthrough.ContinueAfterOpen(Monitor, step: 1, "The Settings page you opened (ms-settings:colors)");
         StaTestThread.WaitFor(harness.FollowUp.Task);
 
         TurnTrigger trigger = harness.FollowUp.Task.Result;
