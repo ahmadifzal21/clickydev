@@ -22,6 +22,9 @@ internal enum ProgramParseOutcome
 /// </summary>
 internal static class ProgramCallParser
 {
+    /// <summary>Arrays and objects nest at most this deep; deeper text is rejected instead of recursing until the stack overflows.</summary>
+    internal const int MaximumNestingDepth = 32;
+
     public static ProgramParseOutcome TryParse(string text, int start, out ProgramCall? call, out int end)
     {
         call = null;
@@ -45,7 +48,7 @@ internal static class ProgramCallParser
             SkipSpaces(text, ref position);
             if (position >= text.Length) return ProgramParseOutcome.Incomplete;
             if (text[position] == ')') { position++; break; }
-            ProgramParseOutcome valueOutcome = TryReadValue(text, ref position, out object? value);
+            ProgramParseOutcome valueOutcome = TryReadValue(text, ref position, depth: 0, out object? value);
             if (valueOutcome != ProgramParseOutcome.Complete) return valueOutcome;
             arguments.Add(value);
             SkipSpaces(text, ref position);
@@ -64,14 +67,15 @@ internal static class ProgramCallParser
         return ProgramParseOutcome.Complete;
     }
 
-    private static ProgramParseOutcome TryReadValue(string text, ref int position, out object? value)
+    private static ProgramParseOutcome TryReadValue(string text, ref int position, int depth, out object? value)
     {
         value = null;
+        if (depth > MaximumNestingDepth) return ProgramParseOutcome.Invalid;
         char first = text[position];
         if (first is '"' or '\'') return TryReadString(text, ref position, out value);
         if (first == '-' || char.IsAsciiDigit(first) || first == '.') return TryReadNumber(text, ref position, out value);
-        if (first == '[') return TryReadArray(text, ref position, out value);
-        if (first == '{') return TryReadObject(text, ref position, out value);
+        if (first == '[') return TryReadArray(text, ref position, depth + 1, out value);
+        if (first == '{') return TryReadObject(text, ref position, depth + 1, out value);
         if (IsIdentifierStart(first))
         {
             int wordStart = position;
@@ -141,7 +145,7 @@ internal static class ProgramCallParser
         return ProgramParseOutcome.Complete;
     }
 
-    private static ProgramParseOutcome TryReadArray(string text, ref int position, out object? value)
+    private static ProgramParseOutcome TryReadArray(string text, ref int position, int depth, out object? value)
     {
         value = null;
         position++;
@@ -151,7 +155,7 @@ internal static class ProgramCallParser
             SkipSpaces(text, ref position);
             if (position >= text.Length) return ProgramParseOutcome.Incomplete;
             if (text[position] == ']') { position++; break; }
-            ProgramParseOutcome itemOutcome = TryReadValue(text, ref position, out object? item);
+            ProgramParseOutcome itemOutcome = TryReadValue(text, ref position, depth, out object? item);
             if (itemOutcome != ProgramParseOutcome.Complete) return itemOutcome;
             items.Add(item);
             SkipSpaces(text, ref position);
@@ -164,7 +168,7 @@ internal static class ProgramCallParser
         return ProgramParseOutcome.Complete;
     }
 
-    private static ProgramParseOutcome TryReadObject(string text, ref int position, out object? value)
+    private static ProgramParseOutcome TryReadObject(string text, ref int position, int depth, out object? value)
     {
         value = null;
         position++;
@@ -195,7 +199,7 @@ internal static class ProgramCallParser
             position++;
             SkipSpaces(text, ref position);
             if (position >= text.Length) return ProgramParseOutcome.Incomplete;
-            ProgramParseOutcome valueOutcome = TryReadValue(text, ref position, out object? entry);
+            ProgramParseOutcome valueOutcome = TryReadValue(text, ref position, depth, out object? entry);
             if (valueOutcome != ProgramParseOutcome.Complete) return valueOutcome;
             map[key] = entry;
             SkipSpaces(text, ref position);

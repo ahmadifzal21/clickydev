@@ -47,6 +47,15 @@ public sealed class ReplyProgramReaderTests
         Assert.Equal(ProgramParseOutcome.Invalid, ProgramCallParser.TryParse(text, 0, out _, out _));
 
     [Fact]
+    public void Parser_RejectsDeepNesting_InsteadOfOverflowingTheStack()
+    {
+        string deep = "trace(" + new string('[', 100_000) + "1" + new string(']', 100_000) + ")";
+        Assert.Equal(ProgramParseOutcome.Invalid, ProgramCallParser.TryParse(deep, 0, out _, out _));
+        string allowed = "trace(" + new string('[', 32) + "1" + new string(']', 32) + ")";
+        Assert.Equal(ProgramParseOutcome.Complete, ProgramCallParser.TryParse(allowed, 0, out _, out _));
+    }
+
+    [Fact]
     public void FencedProgram_StreamedCharByChar_GivesEachCallOnceInOrder()
     {
         const string reply = "```clicky\nstep(1);\nsay(\"open the menu.\")\nring(10, 20, 8)\n// a comment\nsay(\"then save; done.\")\n```\n";
