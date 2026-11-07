@@ -37,6 +37,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- E11 T11.6: the companion prompt is a long document, kept as Markdown so it reads (and diffs) like one. -->
+    <EmbeddedResource Include="Companion\Prompts\companion.md" LogicalName="Clicky.Prompts.companion.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Remove WinForms global usings; reference System.Windows.Forms types explicitly. -->
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
