@@ -169,6 +169,8 @@ internal sealed class TypedScreenQuestionRunner(
             cancellationToken.ThrowIfCancellationRequested();
             TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.ReplyReady, routedResponse.ResponseText);
             Trace.WriteLine($"Question answered by {routedResponse.AnsweringBackendKind}.");
+            // The raw reply, marks included: the only way to see what the model actually wrote when a turn misbehaves.
+            Trace.WriteLine($"Reply text ({routedResponse.AnsweringBackendKind}): {routedResponse.ResponseText.ReplaceLineEndings(" | ")}");
 
             replyPlayback.Finish(routedResponse.ResponseText);
             conversationHistory.Record(userQuestion, routedResponse.ResponseText);
