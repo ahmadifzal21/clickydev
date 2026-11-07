@@ -39,6 +39,12 @@ internal sealed class TypedScreenQuestionRunner(
     /// <summary>The app in front at the press, for the voice turn's context (by the release, Clicky's own UI may be in front).</summary>
     private ForegroundAppInfo? frontAppFromPress;
 
+    /// <summary>What the user drew with the mouse while asking (E11 T11.23), for the voice turn that follows the release.</summary>
+    private HighlightStroke? highlightFromPress;
+
+    /// <summary>The release's highlighter stroke (or null); the next voice turn paints it into its screenshot and describes it.</summary>
+    public void SetHighlightForNextVoiceTurn(HighlightStroke? stroke) => highlightFromPress = stroke;
+
     /// <summary>Whether the last question was spoken; a walkthrough's follow-ups carry it on.</summary>
     private bool lastQuestionWasVoice = true;
 
@@ -143,6 +149,9 @@ internal sealed class TypedScreenQuestionRunner(
         bool isVoice = trigger.IsWalkthrough ? lastQuestionWasVoice : screenCapturesTask is not null || turnId is not null;
         if (!trigger.IsWalkthrough) lastQuestionWasVoice = isVoice;
         ForegroundAppInfo? frontApp = screenCapturesTask is not null ? frontAppFromPress : ForegroundAppInfo.Read();
+        HighlightStroke? highlight = screenCapturesTask is not null ? highlightFromPress : null;
+        highlightFromPress = null;
+        string? highlightLine = null;
         string userPrompt = CompanionScreenQuestion.BuildUserPrompt(userQuestion, trigger);
         string historyUserText = userQuestion.Length > 0 ? userQuestion : trigger.AppFact ?? "";
         bool armedATargetThisTurn = false;
@@ -226,13 +235,14 @@ internal sealed class TypedScreenQuestionRunner(
                 ?? CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, cancellationToken))
                 .WaitAsync(cancellationToken);
             TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.CaptureDone);
+            if (highlight is not null) (screenCaptures, highlightLine) = await ApplyHighlightAsync(screenCaptures, highlight);
 
             Task playingTheReply = PlayTheReplyAsItArrivesAsync();
             RoutedChatResponse routedResponse;
             try
             {
                 string turnContext = CompanionTurnContext.Build(DateTime.Now, frontApp, isVoice, trigger.WalkthroughStep,
-                    [.. appNotes, conversationHistory.EarlierSummary ?? "", .. TurnContextSources.SelectMany(source => source())]);
+                    [.. appNotes, highlightLine ?? "", conversationHistory.EarlierSummary ?? "", .. TurnContextSources.SelectMany(source => source())]);
                 routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
                     CompanionScreenQuestion.BuildChatRequest(userPrompt, screenCaptures, conversationHistory.GetExchanges())
                         with { TurnContext = turnContext, HistoryVersion = conversationHistory.Version },
@@ -294,6 +304,33 @@ internal sealed class TypedScreenQuestionRunner(
         interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
         cursorOverlayManager.ScheduleTransientHide();
         return bubbleText;
+    }
+
+    /// <summary>The highlighter stroke painted into its screen's capture, and the [highlight] line describing it.</summary>
+    private static async Task<(IReadOnlyList<CompanionScreenCapture> Captures, string? Line)> ApplyHighlightAsync(
+        IReadOnlyList<CompanionScreenCapture> screenCaptures, HighlightStroke stroke)
+    {
+        int captureIndex = -1;
+        for (int index = 0; index < screenCaptures.Count; index++)
+            if (screenCaptures[index].CapturedMonitor.Contains(stroke.Points[0].X, stroke.Points[0].Y)) captureIndex = index;
+        if (captureIndex < 0) return (screenCaptures, null);
+        CompanionScreenCapture capture = screenCaptures[captureIndex];
+        CompanionScreenCapture[] painted = [.. screenCaptures];
+        try
+        {
+            painted[captureIndex] = HighlightGesture.PaintInto(capture, stroke);
+        }
+        catch (Exception exception)
+        {
+            // Only the painting is lost: the turn still gets the screenshot and the words describing the stroke.
+            Trace.TraceWarning($"Couldn't paint the highlight into the screenshot: {exception.Message}");
+        }
+        string described = HighlightGesture.Describe(stroke, capture.CapturedMonitor.Bounds);
+        string? text = await HighlightGesture.ReadTextUnderAsync(stroke);
+        string screen = screenCaptures.Count > 1 ? $" on screen {captureIndex + 1}" : "";
+        string line = $"[highlight] while asking, they {described}{screen} (it's drawn in the screenshot)" + (text is null ? "" : $"; text there: \"{text}\"");
+        Trace.WriteLine(line);
+        return (painted, line);
     }
 
     /// <summary>

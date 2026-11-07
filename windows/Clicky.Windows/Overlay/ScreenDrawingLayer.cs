@@ -24,6 +24,7 @@ internal sealed partial class ScreenDrawingLayer : Canvas
     private const double DrawOnDipsPerSecond = 1400;
 
     private readonly Dictionary<UIElement, ScreenMarkKind> markKinds = [];
+    private Polyline? highlightTrail;
 
     public ScreenDrawingLayer()
     {
@@ -31,10 +32,37 @@ internal sealed partial class ScreenDrawingLayer : Canvas
         ClipToBounds = false;
     }
 
-    public bool HasMarks => Children.Count > 0;
+    public bool HasMarks => markKinds.Count > 0;
 
     /// <summary>How many marks of each kind are on screen; tests read it.</summary>
-    public IReadOnlyList<ScreenMarkKind> MarkKinds => Children.OfType<UIElement>().Select(element => markKinds[element]).ToArray();
+    public IReadOnlyList<ScreenMarkKind> MarkKinds => Children.OfType<UIElement>().Where(markKinds.ContainsKey).Select(element => markKinds[element]).ToArray();
+
+    public bool HasHighlightTrail => highlightTrail is not null;
+
+    /// <summary>The user's highlighter trail while they talk (E11 T11.23), in DIPs; not a mark, so it doesn't hold the overlay up.</summary>
+    public void SetHighlightTrail(IReadOnlyList<Point> points)
+    {
+        if (highlightTrail is null)
+        {
+            highlightTrail = new Polyline
+            {
+                Stroke = new SolidColorBrush(Color.FromArgb(0x8C, InkColor.R, InkColor.G, InkColor.B)),
+                StrokeThickness = 8,
+                StrokeLineJoin = PenLineJoin.Round,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round
+            };
+            Children.Add(highlightTrail);
+        }
+        highlightTrail.Points = new PointCollection(points);
+    }
+
+    public void ClearHighlightTrail()
+    {
+        if (highlightTrail is null) return;
+        Children.Remove(highlightTrail);
+        highlightTrail = null;
+    }
 
     /// <summary>Draws <paramref name="mark"/>, whose points are already in this overlay's DIPs; the radius too.</summary>
     public void Add(ScreenMark mark)
@@ -74,7 +102,7 @@ internal sealed partial class ScreenDrawingLayer : Canvas
     /// <summary>Removes every mark of <paramref name="kind"/> (the target ring when its step is done).</summary>
     public void Remove(ScreenMarkKind kind)
     {
-        foreach (UIElement element in Children.OfType<UIElement>().Where(element => markKinds[element] == kind).ToArray())
+        foreach (UIElement element in markKinds.Where(mark => mark.Value == kind).Select(mark => mark.Key).ToArray())
         {
             Children.Remove(element);
             markKinds.Remove(element);
@@ -83,7 +111,7 @@ internal sealed partial class ScreenDrawingLayer : Canvas
 
     public void Clear()
     {
-        Children.Clear();
+        foreach (UIElement mark in markKinds.Keys) Children.Remove(mark);
         markKinds.Clear();
     }
 

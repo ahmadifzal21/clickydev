@@ -234,6 +234,22 @@ internal sealed class CursorOverlayManager : IDisposable
         drawingAgeSeconds = 0;
     }
 
+    /// <summary>The user's highlighter trail while talking (physical pixels), on the monitor where it started.</summary>
+    public void ShowHighlightTrail(IReadOnlyList<System.Windows.Point> physicalPoints)
+    {
+        dispatcher.VerifyAccess();
+        if (!IsOverlayVisible || physicalPoints.Count == 0) return;
+        CursorOverlayWindow? targetOverlayWindow = cursorOverlayWindows.FirstOrDefault(
+            cursorOverlayWindow => cursorOverlayWindow.DisplayMonitor.Contains(physicalPoints[0].X, physicalPoints[0].Y));
+        targetOverlayWindow?.SetHighlightTrail(physicalPoints);
+    }
+
+    public void HideHighlightTrail()
+    {
+        dispatcher.VerifyAccess();
+        foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows) cursorOverlayWindow.ScreenDrawingLayer.ClearHighlightTrail();
+    }
+
     /// <summary>Wipes the marks on every monitor (the reply's clear(), a new turn, or the screen changed under them).</summary>
     public void ClearDrawing()
     {

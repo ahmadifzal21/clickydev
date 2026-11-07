@@ -79,6 +79,10 @@ internal sealed class CursorOverlayWindow : Window
     /// <summary>The marks drawn on this monitor (E11 T11.8).</summary>
     public ScreenDrawingLayer ScreenDrawingLayer => screenDrawingLayer;
 
+    /// <summary>Shows the user's highlighter trail (physical pixels) on this monitor.</summary>
+    public void SetHighlightTrail(IReadOnlyList<Point> physicalPoints) =>
+        screenDrawingLayer.SetHighlightTrail(physicalPoints.Select(point => OverlayCoordinateMapper.PhysicalPixelsToOverlayDips(displayMonitor, point.X, point.Y)).ToArray());
+
     /// <summary>Draws a mark given in physical pixels, converted to this overlay's DIPs.</summary>
     public void Draw(ScreenMark mark)
     {

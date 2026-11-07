@@ -39,6 +39,7 @@ public partial class App : Application
     private TypedScreenQuestionRunner? typedScreenQuestionRunner;
     private GlobalMouseHook? globalMouseHook;
     private GuidedWalkthrough? guidedWalkthrough;
+    private HighlightGesture? highlightGesture;
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -92,6 +93,8 @@ public partial class App : Application
             IsTalkKeyHeld = () => companionInteractionStateMachine.CurrentState == CompanionVoiceState.Listening
         });
         typedScreenQuestionRunner.Walkthrough = guidedWalkthrough;
+        highlightGesture = new HighlightGesture(globalMouseHook, overlayManager.ShowHighlightTrail, overlayManager.HideHighlightTrail);
+        HighlightGesture highlighter = highlightGesture;
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
             companionPanelWindow.SetVoiceNote, Dispatcher, interactionStateMachine: companionInteractionStateMachine,
             answerTranscriptAsync: (transcript, turnId, cancellationToken) =>
@@ -118,11 +121,14 @@ public partial class App : Application
                     pushToTalkDictation.HandleShortcutTransition(PushToTalkShortcutTransition.Pressed);
                     // After the microphone has started; the screen is captured while the user talks (E10 T10.2).
                     typedScreenQuestionRunner.CaptureOnPress();
+                    highlighter.Begin(); // Moving the mouse while talking highlights what "this" is (E11 T11.23).
                     break;
                 case PushToTalkGestureAction.StopAndAnswer:
+                    typedScreenQuestionRunner.SetHighlightForNextVoiceTurn(highlighter.End());
                     pushToTalkDictation.HandleShortcutTransition(PushToTalkShortcutTransition.Released);
                     break;
                 case PushToTalkGestureAction.StopAndDiscard:
+                    highlighter.End();
                     pushToTalkDictation.DiscardRecording();
                     break;
             }
