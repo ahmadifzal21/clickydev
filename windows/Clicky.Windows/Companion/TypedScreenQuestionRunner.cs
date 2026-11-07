@@ -117,6 +117,7 @@ internal sealed class TypedScreenQuestionRunner(
         currentAnswerCancellation = answerCancellation;
         CancellationToken cancellationToken = answerCancellation.Token;
         cursorOverlayManager.ShowTransiently();
+        cursorOverlayManager.ClearDrawing(); // A new turn draws on a clean screen.
         // A voice turn is already Processing (the trigger is ignored then); a typed one starts here.
         interactionStateMachine.Apply(CompanionInteractionTrigger.TypedQuestionAsked);
 
@@ -137,6 +138,13 @@ internal sealed class TypedScreenQuestionRunner(
                     break;
                 case "click" or "hover" when call.LeadingNumbers() is [var left, var top, var right, var bottom, ..]:
                     PointAtReplyTarget((left + right) / 2, (top + bottom) / 2, call.ScreenNumber, call.Label);
+                    break;
+                case "clear":
+                    cursorOverlayManager.ClearDrawing();
+                    break;
+                case var name when ScreenMarkBuilder.DrawingCallNames.Contains(name):
+                    if (ScreenMarkBuilder.FromCall(call, screenCaptures) is { } mark) cursorOverlayManager.Draw(mark);
+                    else Trace.TraceWarning($"Reply mark skipped (missing numbers or screen): {call}");
                     break;
                 default:
                     Trace.WriteLine($"Reply call not handled: {call}");

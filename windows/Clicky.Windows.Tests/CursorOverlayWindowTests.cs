@@ -137,7 +137,7 @@ public sealed class CursorOverlayWindowTests
             try
             {
                 cursorOverlayWindow.Show();
-                BlueCursorView blueCursorView = Assert.IsType<BlueCursorView>(cursorOverlayWindow.Content);
+                BlueCursorView blueCursorView = cursorOverlayWindow.BlueCursorView;
 
                 cursorOverlayWindow.FollowMouse(-1060, 400, false, 0);
                 Assert.Equal(Visibility.Visible, blueCursorView.BlueCursorTriangle.Visibility);

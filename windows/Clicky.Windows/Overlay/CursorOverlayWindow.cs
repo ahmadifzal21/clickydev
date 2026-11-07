@@ -16,6 +16,7 @@ internal sealed class CursorOverlayWindow : Window
     private readonly DisplayMonitor displayMonitor;
     private readonly Action requestMonitorRefresh;
     private readonly BlueCursorView blueCursorView = new();
+    private readonly ScreenDrawingLayer screenDrawingLayer = new();
     private HwndSource? overlayHwndSource;
     private IntPtr overlayWindowHandle;
 
@@ -36,7 +37,8 @@ internal sealed class CursorOverlayWindow : Window
         Topmost = true;
         Width = displayMonitor.Bounds.Width / displayMonitor.DpiScaleX;
         Height = displayMonitor.Bounds.Height / displayMonitor.DpiScaleY;
-        Content = blueCursorView;
+        // Marks under the buddy: the cursor flies over what it drew.
+        Content = new System.Windows.Controls.Grid { Children = { screenDrawingLayer, blueCursorView } };
         PixelRect workArea = displayMonitor.WorkArea;
         blueCursorView.WorkAreaInOverlayDips = new Rect(
             OverlayCoordinateMapper.PhysicalPixelsToOverlayDips(displayMonitor, workArea.Left, workArea.Top),
@@ -73,6 +75,20 @@ internal sealed class CursorOverlayWindow : Window
     }
 
     public void CancelPointing() => blueCursorView.CancelPointing();
+
+    /// <summary>The marks drawn on this monitor (E11 T11.8).</summary>
+    public ScreenDrawingLayer ScreenDrawingLayer => screenDrawingLayer;
+
+    /// <summary>Draws a mark given in physical pixels, converted to this overlay's DIPs.</summary>
+    public void Draw(ScreenMark mark)
+    {
+        screenDrawingLayer.Add(mark with
+        {
+            Points = mark.Points.Select(point => OverlayCoordinateMapper.PhysicalPixelsToOverlayDips(displayMonitor, point.X, point.Y)).ToArray(),
+            Radius = mark.Radius / displayMonitor.DpiScaleX,
+            Size = new Size(mark.Size.Width / displayMonitor.DpiScaleX, mark.Size.Height / displayMonitor.DpiScaleY)
+        });
+    }
 
     protected override void OnSourceInitialized(EventArgs eventArgs)
     {

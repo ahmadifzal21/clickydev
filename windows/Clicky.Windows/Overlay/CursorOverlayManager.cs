@@ -163,11 +163,22 @@ internal sealed class CursorOverlayManager : IDisposable
             SetOverlayOpacity(EaseIn(fadeInElapsed / FirstAppearanceFadeInSeconds));
         }
 
+        bool hasDrawing = HasDrawing;
+        if (hasDrawing)
+        {
+            drawingAgeSeconds += elapsedSeconds;
+            if (drawingAgeSeconds >= DrawingLifetimeSeconds)
+            {
+                ClearDrawing();
+                hasDrawing = false;
+            }
+        }
+
         if (transientHideCountdownSeconds is double hideCountdown)
         {
             // The Mac waits for the flight back to the mouse before starting its one-second pause; the reply bubble
-            // lives in the overlay too, so it must finish its hold and fade first.
-            hideCountdown = isAnyOverlayPointing || IsShowingResponse ? TransientHideDelaySeconds : hideCountdown - elapsedSeconds;
+            // lives in the overlay too, so it must finish its hold and fade first. Marks keep it up until they're cleared.
+            hideCountdown = isAnyOverlayPointing || IsShowingResponse || hasDrawing ? TransientHideDelaySeconds : hideCountdown - elapsedSeconds;
             transientHideCountdownSeconds = hideCountdown > 0 ? hideCountdown : null;
             if (hideCountdown <= 0)
             {
@@ -198,6 +209,43 @@ internal sealed class CursorOverlayManager : IDisposable
     {
         double clampedProgress = Math.Clamp(progress, 0, 1);
         return clampedProgress * clampedProgress;
+    }
+
+    /// <summary>True while any monitor shows marks; the transient hide waits for them (E11 T11.8).</summary>
+    public bool HasDrawing => cursorOverlayWindows.Any(cursorOverlayWindow => cursorOverlayWindow.ScreenDrawingLayer.HasMarks);
+
+    /// <summary>Drawings go away on their own this long after the last mark, if nothing cleared them first.</summary>
+    internal const double DrawingLifetimeSeconds = 120;
+    private double drawingAgeSeconds;
+
+    /// <summary>Draws a mark (physical pixels) on the overlay of the monitor holding its anchor point.</summary>
+    public void Draw(ScreenMark mark)
+    {
+        dispatcher.VerifyAccess();
+        if (!IsOverlayVisible) return; // Like PointAt: callers show the overlay first.
+        CursorOverlayWindow? targetOverlayWindow = cursorOverlayWindows.FirstOrDefault(
+            cursorOverlayWindow => cursorOverlayWindow.DisplayMonitor.Contains(mark.Anchor.X, mark.Anchor.Y));
+        if (targetOverlayWindow is null)
+        {
+            Trace.TraceWarning($"Clicky can't draw a {mark.Kind} at ({mark.Anchor.X}, {mark.Anchor.Y}): it is on no monitor.");
+            return;
+        }
+        targetOverlayWindow.Draw(mark);
+        drawingAgeSeconds = 0;
+    }
+
+    /// <summary>Wipes the marks on every monitor (the reply's clear(), a new turn, or the screen changed under them).</summary>
+    public void ClearDrawing()
+    {
+        dispatcher.VerifyAccess();
+        foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows) cursorOverlayWindow.ScreenDrawingLayer.Clear();
+    }
+
+    /// <summary>Removes the marks of one kind on every monitor, e.g. a guided step's target ring once it's done.</summary>
+    public void RemoveMarks(ScreenMarkKind kind)
+    {
+        dispatcher.VerifyAccess();
+        foreach (CursorOverlayWindow cursorOverlayWindow in cursorOverlayWindows) cursorOverlayWindow.ScreenDrawingLayer.Remove(kind);
     }
 
     /// <summary>
