@@ -115,6 +115,10 @@ internal sealed class ClaudeSessionProcess : IDisposable
             using JsonDocument document = JsonDocument.Parse(outputLine);
             JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("type", out JsonElement type) || type.GetString() != "result") return false;
+            // Replayed history (shouldQuery false) is acknowledged with an empty, error-free result of zero turns, a varying number
+            // of them; taking one as the answer failed every turn after an idle restart. Errors still end the turn.
+            if (root.TryGetProperty("num_turns", out JsonElement turns) && turns.ValueKind == JsonValueKind.Number && turns.GetInt32() == 0
+                && !(root.TryGetProperty("is_error", out JsonElement isError) && isError.ValueKind == JsonValueKind.True)) return false;
             if (root.TryGetProperty("usage", out JsonElement usage) && usage.ValueKind == JsonValueKind.Object)
             {
                 foreach (string field in new[] { "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens" })

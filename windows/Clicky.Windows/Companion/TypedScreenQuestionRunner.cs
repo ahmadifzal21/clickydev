@@ -200,6 +200,7 @@ internal sealed class TypedScreenQuestionRunner(
         string userPrompt = CompanionScreenQuestion.BuildUserPrompt(userQuestion, trigger);
         string historyUserText = userQuestion.Length > 0 ? userQuestion : trigger.AppFact ?? "";
         bool armedATargetThisTurn = false;
+        string? openedSettingsPage = null;
         int armedTargetLine = -1;
         // Untrusted text reached the model this turn (a page's text, web results): side effects need the user's own click.
         // The tainted exchange is recorded as version+1; it stays in the history for 10 exchanges and its seen note in [earlier]
@@ -280,7 +281,10 @@ internal sealed class TypedScreenQuestionRunner(
                 case "open" when call.Text(0) is { } link:
                     // Settings pages open at once; a web link waits for the user's click: text on the screen, a page or the web
                     // could have asked for it, and a link can carry data out.
-                    if (link.TrimStart().StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase)) CompanionActions.Open(link);
+                    if (link.TrimStart().StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (CompanionActions.Open(link)) openedSettingsPage = link.Trim() is { Length: > 60 } longLink ? longLink[..60] : link.Trim();
+                    }
                     else if (CompanionActions.IsAllowedLink(link, out _)) ResultCardWindow.Show("Open this link?", link, "Open", () => CompanionActions.Open(link));
                     break;
                 case "agent" when call.Arguments.OfType<string>().ToArray() is [var jobTitle, var jobTask, ..]:
@@ -380,7 +384,7 @@ internal sealed class TypedScreenQuestionRunner(
             ShowFinishedResponse(bubbleText);
             walkthroughStep = replyPlayback.Step ?? trigger.WalkthroughStep ?? walkthroughStep;
             await replyPlayback.WaitUntilPlayedAsync();
-            WatchForTheNextStep(replyPlayback, armedATargetThisTurn, screenCaptures, cancellationToken);
+            WatchForTheNextStep(replyPlayback, armedATargetThisTurn, openedSettingsPage, screenCaptures, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -472,13 +476,18 @@ internal sealed class TypedScreenQuestionRunner(
     /// After a reply has played: a step without a target whose last line tells the user to do something arms the step
     /// watcher; any marks left on screen are watched so they go once the screen changes under them.
     /// </summary>
-    private void WatchForTheNextStep(ReplyPlayback replyPlayback, bool armedATarget, IReadOnlyList<CompanionScreenCapture> screenCaptures,
-        CancellationToken cancellationToken)
+    private void WatchForTheNextStep(ReplyPlayback replyPlayback, bool armedATarget, string? openedSettingsPage,
+        IReadOnlyList<CompanionScreenCapture> screenCaptures, CancellationToken cancellationToken)
     {
         if (Walkthrough is null || cancellationToken.IsCancellationRequested) return;
         if (screenCaptures.FirstOrDefault(capture => capture.IsCursorScreen) is not { } cursorCapture) return;
         PixelRect monitorBounds = cursorCapture.CapturedMonitor.Bounds;
-        if (!armedATarget && replyPlayback.HasMarks && GuidedWalkthrough.IsInstruction(replyPlayback.LastLineText))
+        if (!armedATarget && openedSettingsPage is not null)
+        {
+            Walkthrough.ContinueAfterOpen(monitorBounds, Math.Max(1, walkthroughStep), openedSettingsPage);
+            PrestartTheNextStep();
+        }
+        else if (!armedATarget && replyPlayback.HasMarks && GuidedWalkthrough.IsInstruction(replyPlayback.LastLineText))
         {
             Walkthrough.ArmStepWatch(monitorBounds, Math.Max(1, walkthroughStep));
             PrestartTheNextStep();

@@ -121,7 +121,18 @@ public sealed class GuidedWalkthroughTests
         (bool changed, TimeSpan waited) = waiter.WaitAsync(Monitor, null, TimeSpan.FromMilliseconds(900), CancellationToken.None).GetAwaiter().GetResult();
 
         Assert.True(changed);
-        Assert.InRange(waited, TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(1.2));
+        Assert.InRange(waited, TimeSpan.FromMilliseconds(900), TimeSpan.FromSeconds(1.4));
+    }
+
+    [Fact]
+    public void Settle_WaitsOutAChangeThatComesInTwoParts()
+    {
+        // Word: Backstage closes (200, holds still), then the Save dialog opens (120). Waiting less than 0.9 s missed the dialog.
+        FakeScreen screen = new(Picture(10), Picture(200), Picture(200), Picture(200), Picture(120));
+        ScreenSettleWaiter waiter = new(screen);
+        waiter.WaitAsync(Monitor, null, TimeSpan.FromMilliseconds(900), CancellationToken.None).GetAwaiter().GetResult();
+
+        Assert.Equal(120, screen.Sample(Monitor)![0]); // It went past the first part before settling.
     }
 
     [Fact]
@@ -229,6 +240,19 @@ public sealed class GuidedWalkthroughTests
         Assert.Equal(4, trigger.WalkthroughStep);
         Assert.Contains("They scrolled", trigger.AppFact);
         Assert.False(harness.Walkthrough.IsWatchingForAStep);
+    });
+
+    [Fact]
+    public void AfterOpeningSettings_TheNextStepFollowsWithoutAQuestion() => StaTestThread.Run(() =>
+    {
+        Harness harness = new(new FakeScreen(Picture(10)));
+        harness.Walkthrough.ContinueAfterOpen(Monitor, step: 1, "ms-settings:colors");
+        StaTestThread.WaitFor(harness.FollowUp.Task);
+
+        TurnTrigger trigger = harness.FollowUp.Task.Result;
+        Assert.Equal(TurnTriggerKind.DidStep, trigger.Kind);
+        Assert.Equal(2, trigger.WalkthroughStep);
+        Assert.Contains("Settings page you opened (ms-settings:colors)", trigger.AppFact);
     });
 
     [Fact]

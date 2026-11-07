@@ -15,7 +15,8 @@ internal interface IScreenSampler
 /// Waits until the screen stops changing after the user acts (E11 T11.15), so the follow-up screenshot shows the menu fully
 /// open or the page fully loaded, without a fixed long delay. Samples are 192 px wide greyscale; a pixel counts as changed
 /// when it moves more than 12 levels. After a 250 ms head start it samples every 150 ms and stops when two samples in a row
-/// differ by at most 0.5% and either the screen has changed since the action or 1.5 s have passed; never longer than 4 s.
+/// differ by at most 0.5% and either the screen has changed since the action and 0.9 s have passed, or 1.5 s have passed;
+/// never longer than 4 s.
 /// If the screen can't be sampled it just waits <c>fallback</c>.
 /// </summary>
 internal sealed class ScreenSettleWaiter(IScreenSampler screenSampler)
@@ -25,6 +26,9 @@ internal sealed class ScreenSettleWaiter(IScreenSampler screenSampler)
     private const double StableFraction = 0.005;
     private static readonly TimeSpan HeadStart = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan SampleInterval = TimeSpan.FromMilliseconds(150);
+    // A change can come in two parts (Word's Backstage closes, then its Save dialog opens about half a second later): a change
+    // that holds still sooner than this is waited out to here, about what HeyClicky waits.
+    private static readonly TimeSpan MinimumAfterChange = TimeSpan.FromMilliseconds(900);
     private static readonly TimeSpan UnchangedGiveUp = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan HardCap = TimeSpan.FromSeconds(4);
 
@@ -62,7 +66,8 @@ internal sealed class ScreenSettleWaiter(IScreenSampler screenSampler)
             // Stable means two samples in a row agree; the baseline from the moment of the action isn't one of them.
             bool isStable = sampleCount >= 2 && ChangedFraction(sample, previous) <= StableFraction;
             previous = sample;
-            if (isStable && (changed || stopwatch.Elapsed >= UnchangedGiveUp)) return (changed, stopwatch.Elapsed);
+            if (isStable && ((changed && stopwatch.Elapsed >= MinimumAfterChange) || stopwatch.Elapsed >= UnchangedGiveUp))
+                return (changed, stopwatch.Elapsed);
             await Task.Delay(SampleInterval, cancellationToken);
         }
         return (changed, stopwatch.Elapsed);

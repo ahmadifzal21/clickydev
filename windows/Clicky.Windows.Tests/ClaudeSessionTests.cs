@@ -14,7 +14,13 @@ public sealed class ClaudeSessionTests : IDisposable
         $queries = 0; $replayed = 0
         while ($null -ne ($line = [Console]::In.ReadLine())) {
             if ($line -notmatch '"type":"user"') { continue }
-            if ($line -match '"shouldQuery":false') { $replayed++; continue }
+            if ($line -match '"shouldQuery":false') {
+                # Like the real CLI: replayed history is acknowledged with an empty zero-turn result.
+                $replayed++
+                [Console]::Out.WriteLine('{"type":"result","subtype":"success","is_error":false,"result":"","num_turns":0,"duration_api_ms":0}')
+                [Console]::Out.Flush()
+                continue
+            }
             $queries++
             $text = "pid $PID query $queries replayed $replayed"
             if ($line -match 'please hang') { Start-Sleep -Seconds 30 }
@@ -143,5 +149,16 @@ public sealed class ClaudeSessionTests : IDisposable
             out int inputTokens));
         Assert.Equal(60016, inputTokens);
         Assert.False(ClaudeSessionProcess.IsResultLine("""{"type":"assistant","result":"x"}""", out _));
+    }
+
+    [Fact]
+    public void ResultLine_SkipsTheZeroTurnAcknowledgementOfReplayedHistory()
+    {
+        Assert.False(ClaudeSessionProcess.IsResultLine(
+            """{"type":"result","subtype":"success","is_error":false,"result":"","num_turns":0,"duration_api_ms":0}""", out _));
+        Assert.True(ClaudeSessionProcess.IsResultLine(
+            """{"type":"result","subtype":"error_during_execution","is_error":true,"result":"","num_turns":0}""", out _));
+        Assert.True(ClaudeSessionProcess.IsResultLine(
+            """{"type":"result","subtype":"success","is_error":false,"result":"6","num_turns":1}""", out _));
     }
 }
