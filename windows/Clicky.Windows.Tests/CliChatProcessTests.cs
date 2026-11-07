@@ -160,8 +160,8 @@ public class CliChatProcessTests
             var result = await CliChatProcess.RunAsync(startInfo, "", TimeSpan.FromSeconds(15), CancellationToken.None);
 
             Assert.Equal(0, result.ExitCode);
-            Assert.Contains($"--system-prompt-file \"{promptFilePath}\" --tools WebSearch,WebFetch --safe-mode", result.StandardOutput);
-            Assert.Contains("--allowedTools WebSearch,WebFetch", result.StandardOutput);
+            Assert.Contains($"--system-prompt-file \"{promptFilePath}\" --tools WebSearch --safe-mode", result.StandardOutput);
+            Assert.Contains("--allowedTools WebSearch", result.StandardOutput);
         }
         finally
         {

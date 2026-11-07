@@ -8,8 +8,11 @@ namespace Clicky.Windows.AI;
 
 internal static class ClaudeCodeCliProtocol
 {
-    /// <summary>E11 T11.26: the only tools Claude gets — search the web and read a page. No files, no commands.</summary>
-    internal const string WebToolNames = "WebSearch,WebFetch";
+    /// <summary>
+    /// E11 T11.26: the only tool Claude gets is web search. Not WebFetch: auto-approved fetching of any URL is a way to send data
+    /// out if text on a page or screen talks the model into it. No files, no commands.
+    /// </summary>
+    internal const string WebToolNames = "WebSearch";
 
     public static ProcessStartInfo BuildStartInfo(ClaudeCodeCliBackendSettings settings, string systemPromptFilePath)
     {
@@ -142,6 +145,11 @@ internal static class ClaudeCodeCliProtocol
             return null; // ParseResponse reports invalid output once the process ends.
         }
     }
+
+    /// <summary>True for a stream line where the model starts using a tool (here: a web search).</summary>
+    public static bool IsToolUse(string outputLine) =>
+        outputLine.Contains("\"content_block_start\"", StringComparison.Ordinal)
+        && (outputLine.Contains("\"server_tool_use\"", StringComparison.Ordinal) || outputLine.Contains("\"tool_use\"", StringComparison.Ordinal));
 
     public static string ParseResponse(string standardOutput, string standardError, int exitCode)
     {

@@ -153,6 +153,29 @@ public partial class CompanionPanelWindow : Window
         BackendRoutingPickerRows.OpenConfigurationFileInEditor(clickyConfigurationStore.ConfigurationFilePath);
     }
 
+    /// <summary>Raised by "Stop running jobs".</summary>
+    public event Action? StopJobsRequested;
+
+    /// <summary>Where background jobs keep their folders; "Open jobs folder" opens it.</summary>
+    public string? JobsFolder { get; set; }
+
+    /// <summary>Shows the background jobs, newest first: id, title, status.</summary>
+    internal void SetJobs(IReadOnlyList<Clicky.Windows.Agents.AgentJob> jobs)
+    {
+        JobsSection.Visibility = jobs.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        JobsTextBlock.Text = string.Join("\n", jobs.Reverse().Take(6).Select(job => $"{job.Id}  {job.Title} — {job.Status}"));
+    }
+
+    private void HandleOpenJobsFolderButtonClick(object sender, RoutedEventArgs routedEventArgs)
+    {
+        if (JobsFolder is null) return;
+        HidePanel();
+        System.IO.Directory.CreateDirectory(JobsFolder);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(JobsFolder) { UseShellExecute = true })?.Dispose();
+    }
+
+    private void HandleStopJobsButtonClick(object sender, RoutedEventArgs routedEventArgs) => StopJobsRequested?.Invoke();
+
     /// <summary>What Clicky remembers about the user (E11 T11.24), created empty first so there is something to open.</summary>
     private void HandleOpenMemoryFileButtonClick(object sender, RoutedEventArgs routedEventArgs)
     {

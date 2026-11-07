@@ -66,6 +66,9 @@ public sealed class ClickyConfiguration
 
     public VoiceSettings Voice { get; set; } = new();
 
+    /// <summary>Background jobs a reply can start with agent() (E11 T11.27).</summary>
+    public AgentSettings Agents { get; set; } = new();
+
     /// <summary>
     /// Push-to-talk shortcut held down to talk, e.g. "ctrl+alt" (the Windows equivalent of the
     /// Mac's control+option). Modifier-only combinations are allowed.
@@ -165,6 +168,18 @@ public sealed class CodexCliBackendSettings
     public bool WebSearch { get; set; } = true;
 
     public int ResponseTimeoutSeconds { get; set; } = 120;
+}
+
+public sealed class AgentSettings
+{
+    /// <summary>Which CLI runs background jobs: ClaudeCodeCli (files in the job folder, web search; no commands) or CodexCli.</summary>
+    public ChatBackendKind Backend { get; set; } = ChatBackendKind.ClaudeCodeCli;
+
+    /// <summary>The model for jobs; null uses the backend's own setting.</summary>
+    public string? Model { get; set; }
+
+    /// <summary>Each job gets a folder in here (environment variables are expanded).</summary>
+    public string JobsFolder { get; set; } = @"%USERPROFILE%\Clicky Jobs";
 }
 
 public sealed class CloudflareWorkerBackendSettings

@@ -80,9 +80,10 @@ internal sealed class ClaudeCodeCliChatBackend(ClaudeCodeCliBackendSettings sett
         Action<string>? onTextDelta = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Action<string>? onOutputLine = onTextDelta is null ? null : outputLine =>
+        Action<string>? onOutputLine = outputLine =>
         {
-            if (ClaudeCodeCliProtocol.TryGetTextDelta(outputLine) is { Length: > 0 } textDelta) onTextDelta(textDelta);
+            if (companionChatRequest.OnWebContent is { } onWebContent && ClaudeCodeCliProtocol.IsToolUse(outputLine)) onWebContent();
+            if (onTextDelta is not null && ClaudeCodeCliProtocol.TryGetTextDelta(outputLine) is { Length: > 0 } textDelta) onTextDelta(textDelta);
         };
         try
         {

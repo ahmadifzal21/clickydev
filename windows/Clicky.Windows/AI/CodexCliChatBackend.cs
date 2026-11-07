@@ -60,9 +60,10 @@ internal sealed class CodexCliChatBackend(CodexCliBackendSettings settings) : IC
         string requestDirectory = prestarted?.WorkPath ?? NewRequestDirectory();
         // shortcut: a second agent message would be spoken too, though only the last is the answer; tools are off, so Codex sends
         // one. Upgrade if multi-message replies show up in the logs.
-        Action<string>? onOutputLine = onTextDelta is null ? null : outputLine =>
+        Action<string>? onOutputLine = outputLine =>
         {
-            if (CodexCliProtocol.TryGetAgentMessageText(outputLine) is { Length: > 0 } messageText) onTextDelta(messageText);
+            if (companionChatRequest.OnWebContent is { } onWebContent && outputLine.Contains("\"web_search\"", StringComparison.Ordinal)) onWebContent();
+            if (onTextDelta is not null && CodexCliProtocol.TryGetAgentMessageText(outputLine) is { Length: > 0 } messageText) onTextDelta(messageText);
         };
         try
         {

@@ -31,6 +31,9 @@ public sealed record CompanionChatRequest(
     /// A live Claude session holding exactly that conversation takes only the new turn (E11 T11.18); null means no session.
     /// </summary>
     public long? HistoryVersion { get; init; }
+
+    /// <summary>Called (on the backend's thread) when the model used web search this turn: its results are untrusted text.</summary>
+    public Action? OnWebContent { get; init; }
 }
 
 /// <summary>

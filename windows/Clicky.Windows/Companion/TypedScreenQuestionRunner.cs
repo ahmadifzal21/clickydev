@@ -129,6 +129,19 @@ internal sealed class TypedScreenQuestionRunner(
 
     private CompanionMemory? memory;
 
+    /// <summary>Background jobs (E11 T11.27); their [jobs] line goes into every turn's context.</summary>
+    public Agents.AgentJobManager? AgentJobs
+    {
+        get => agentJobs;
+        set
+        {
+            agentJobs = value;
+            if (value is not null) TurnContextSources.Add(() => value.ContextLine() is { } line ? [line] : []);
+        }
+    }
+
+    private Agents.AgentJobManager? agentJobs;
+
     /// <summary>The guided walkthrough (E11 T11.12-T11.17), attached after construction since it starts this runner's follow-ups.</summary>
     public GuidedWalkthrough? Walkthrough { get; set; }
 
@@ -179,6 +192,8 @@ internal sealed class TypedScreenQuestionRunner(
         string historyUserText = userQuestion.Length > 0 ? userQuestion : trigger.AppFact ?? "";
         bool armedATargetThisTurn = false;
         int armedTargetLine = -1;
+        // Untrusted text reached the model this turn (a page's text, web results): side effects need the user's own click.
+        bool turnHasUntrustedText = false;
         Action logFirstSound = () => TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.SpeechStarted);
         if (textToSpeechSpeaker is not null) textToSpeechSpeaker.SoundStarted += logFirstSound;
         isRunning = true;
@@ -227,6 +242,12 @@ internal sealed class TypedScreenQuestionRunner(
                 case "clear":
                     cursorOverlayManager.ClearDrawing();
                     break;
+                case "remember" or "forget" or "agent" or "agent_send" when turnHasUntrustedText:
+                    Trace.WriteLine($"{call.Name}() refused: this turn included page or web text, which could have asked for it.");
+                    break;
+                case "agent" or "agent_send" when trigger.IsWalkthrough:
+                    Trace.WriteLine($"{call.Name}() refused: a background job starts only from something the user said.");
+                    break;
                 case "remember" when call.Text(0) is { Length: > 0 } fact:
                     Memory?.Remember(fact);
                     break;
@@ -234,10 +255,23 @@ internal sealed class TypedScreenQuestionRunner(
                     Memory?.Forget(words);
                     break;
                 case "copy" when call.Text(0) is { } textToCopy:
-                    CompanionActions.Copy(textToCopy);
+                    if (turnHasUntrustedText) ResultCardWindow.Show("Copy this?", textToCopy); // The user's click copies it.
+                    else CompanionActions.Copy(textToCopy);
                     break;
                 case "open" when call.Text(0) is { } link:
-                    CompanionActions.Open(link);
+                    if (turnHasUntrustedText && !link.TrimStart().StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase))
+                        ResultCardWindow.Show("Link", link); // Not opened by itself: page or web text could have asked for it.
+                    else CompanionActions.Open(link);
+                    break;
+                case "agent" when call.Arguments.OfType<string>().ToArray() is [var jobTitle, var jobTask, ..]:
+                    if (AgentJobs is null) Trace.WriteLine("agent() skipped: background jobs aren't set up.");
+                    else AgentJobs.Start(jobTitle, jobTask);
+                    break;
+                case "agent_send" when call.Arguments.OfType<string>().ToArray() is [var sendJobId, var jobMessage, ..]:
+                    if (AgentJobs?.Send(sendJobId, jobMessage) != true) Trace.WriteLine($"agent_send() found no job {sendJobId}.");
+                    break;
+                case "agent_stop" when call.Text(0) is { } stopJobId:
+                    if (AgentJobs?.Stop(stopJobId) != true) Trace.WriteLine($"agent_stop() found no running job {stopJobId}.");
                     break;
                 case "result":
                     string[] resultTexts = call.Arguments.OfType<string>().ToArray();
@@ -282,11 +316,12 @@ internal sealed class TypedScreenQuestionRunner(
             try
             {
                 string? pageLine = pageRead is null ? null : await pageRead;
+                if (pageLine is not null) turnHasUntrustedText = true;
                 string turnContext = CompanionTurnContext.Build(DateTime.Now, frontApp, isVoice, trigger.WalkthroughStep,
                     [.. appNotes, highlightLine ?? "", pageLine ?? "", conversationHistory.EarlierSummary ?? "", .. TurnContextSources.SelectMany(source => source())]);
                 routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
                     CompanionScreenQuestion.BuildChatRequest(userPrompt, screenCaptures, conversationHistory.GetExchanges())
-                        with { TurnContext = turnContext, HistoryVersion = conversationHistory.Version },
+                        with { TurnContext = turnContext, HistoryVersion = conversationHistory.Version, OnWebContent = () => turnHasUntrustedText = true },
                     cancellationToken, textDelta =>
                     {
                         TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.TextDelta, textDelta);

@@ -40,6 +40,7 @@ public partial class App : Application
     private GlobalMouseHook? globalMouseHook;
     private GuidedWalkthrough? guidedWalkthrough;
     private HighlightGesture? highlightGesture;
+    private Clicky.Windows.Agents.AgentJobManager? agentJobManager;
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -96,6 +97,25 @@ public partial class App : Application
         typedScreenQuestionRunner.Memory = new CompanionMemory(CompanionMemory.PathNextTo(clickyConfigurationStore.ConfigurationFilePath));
         ClickyConfigurationStore configurationStore = clickyConfigurationStore;
         typedScreenQuestionRunner.ShouldReadBrowserPage = () => configurationStore.CurrentConfiguration.ReadBrowserPage;
+        // Background jobs: a finished one is announced (when Clicky isn't talking) and its summary shown on a card.
+        ITextToSpeechSpeaker speaker = textToSpeechSpeaker;
+        agentJobManager = new Clicky.Windows.Agents.AgentJobManager(configurationStore.CurrentConfiguration.Agents,
+            () => configurationStore.CurrentConfiguration.ClaudeCodeCli, () => configurationStore.CurrentConfiguration.CodexCli,
+            job => Dispatcher.BeginInvoke(() =>
+            {
+                string headline = job.Status switch
+                {
+                    Clicky.Windows.Agents.AgentJobStatus.Done => $"{job.Title} is done.",
+                    Clicky.Windows.Agents.AgentJobStatus.NeedsYou => $"{job.Title} has a question for you.",
+                    _ => $"{job.Title} didn't work out."
+                };
+                ResultCardWindow.Show(headline, $"{job.LastMessage}\n\n**Folder:** {job.Folder}");
+                if (companionInteractionStateMachine.CurrentState == CompanionVoiceState.Idle) _ = speaker.SpeakAsync(headline, CancellationToken.None);
+            }));
+        typedScreenQuestionRunner.AgentJobs = agentJobManager;
+        agentJobManager.JobsChanged += () => Dispatcher.BeginInvoke(() => companionPanelWindow.SetJobs(agentJobManager.Jobs));
+        companionPanelWindow.StopJobsRequested += () => { foreach (var job in agentJobManager.Jobs) agentJobManager.Stop(job.Id); };
+        companionPanelWindow.JobsFolder = agentJobManager.JobsRootFolder;
         highlightGesture = new HighlightGesture(globalMouseHook, overlayManager.ShowHighlightTrail, overlayManager.HideHighlightTrail);
         HighlightGesture highlighter = highlightGesture;
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
@@ -282,6 +302,7 @@ public partial class App : Application
 
         pushToTalkKeyboardHook?.Dispose();
         guidedWalkthrough?.Dispose();
+        agentJobManager?.Dispose(); // Background jobs are Clicky's children: they stop with it.
         globalMouseHook?.Dispose();
         typedScreenQuestionRunner?.Shutdown(); // A prestarted CLI process or the Claude session would outlive Clicky otherwise.
         speechToTextTranscriber?.Dispose();

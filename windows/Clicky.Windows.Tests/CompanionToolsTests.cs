@@ -59,13 +59,13 @@ public sealed class CompanionToolsTests : IDisposable
         Assert.Equal(allowed, CompanionActions.IsAllowedLink(link, out _));
 
     [Fact]
-    public void Claude_GetsOnlyTheTwoReadOnlyWebTools_PreApproved()
+    public void Claude_GetsOnlyWebSearch_PreApproved_AndNoFetchingOfArbitraryUrls()
     {
         var startInfo = ClaudeCodeCliProtocol.BuildStartInfo(new ClaudeCodeCliBackendSettings { WebTools = true }, "prompt.txt");
 
         List<string> arguments = [.. startInfo.ArgumentList];
-        Assert.Equal("WebSearch,WebFetch", arguments[arguments.IndexOf("--tools") + 1]);
-        Assert.Equal("WebSearch,WebFetch", arguments[arguments.IndexOf("--allowedTools") + 1]);
+        Assert.Equal("WebSearch", arguments[arguments.IndexOf("--tools") + 1]);
+        Assert.Equal("WebSearch", arguments[arguments.IndexOf("--allowedTools") + 1]);
         Assert.DoesNotContain("--permission-mode", arguments);
     }
 
@@ -85,6 +85,15 @@ public sealed class CompanionToolsTests : IDisposable
         (IReadOnlyList<ProgramCall> calls, _) = ReplyProgramReader.ReadAll(
             "\n```clicky\nsay(\"let me look that up.\")\n```" + "\n" + "```clicky\nsay(\"it opens at nine.\")\n```");
         Assert.Equal(["let me look that up.", "it opens at nine."], calls.Select(call => call.Text(0)));
+    }
+
+    [Fact]
+    public void ToolUseLines_AreSpotted_SoTheTurnCountsAsHavingWebText()
+    {
+        Assert.True(ClaudeCodeCliProtocol.IsToolUse(
+            """{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"server_tool_use","name":"web_search"}}}"""));
+        Assert.False(ClaudeCodeCliProtocol.IsToolUse(
+            """{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}"""));
     }
 
     [Theory]
