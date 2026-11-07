@@ -59,9 +59,12 @@ internal sealed partial class ScreenDrawingLayer : Canvas
         // A ring, box or arrow can carry a short name too, drawn just outside it.
         if (mark.Kind is ScreenMarkKind.Ring or ScreenMarkKind.Box or ScreenMarkKind.Arrow && !string.IsNullOrWhiteSpace(mark.Text))
         {
-            Point labelSpot = mark.Kind == ScreenMarkKind.Ring
-                ? new Point(mark.Anchor.X + mark.Radius * 0.8, mark.Anchor.Y + mark.Radius * 0.8)
-                : new Point(Math.Max(mark.Points[0].X, mark.Points[1].X) + 6, Math.Max(mark.Points[0].Y, mark.Points[1].Y) + 4);
+            Point labelSpot = mark.Kind switch
+            {
+                ScreenMarkKind.Ring => new Point(mark.Anchor.X + mark.Radius * 0.8, mark.Anchor.Y + mark.Radius * 0.8),
+                ScreenMarkKind.Arrow => new Point(mark.Points[0].X + 6, mark.Points[0].Y + 8), // At the tail: the head points elsewhere.
+                _ => new Point(Math.Max(mark.Points[0].X, mark.Points[1].X) + 6, Math.Max(mark.Points[0].Y, mark.Points[1].Y) + 4)
+            };
             UIElement nameTag = Label(labelSpot, mark.Text!);
             markKinds[nameTag] = ScreenMarkKind.Label;
             Children.Add(nameTag);
