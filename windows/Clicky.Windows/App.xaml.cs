@@ -37,6 +37,8 @@ public partial class App : Application
     private ITextToSpeechSpeaker? textToSpeechSpeaker;
     private readonly CancellationTokenSource appExitCancellation = new();
     private TypedScreenQuestionRunner? typedScreenQuestionRunner;
+    private GlobalMouseHook? globalMouseHook;
+    private GuidedWalkthrough? guidedWalkthrough;
 
     protected override void OnStartup(StartupEventArgs startupEventArgs)
     {
@@ -76,6 +78,20 @@ public partial class App : Application
             TypedScreenQuestionRunner.CreateRouter(clickyConfigurationStore), new CompanionConversationHistory(),
             companionInteractionStateMachine, textToSpeechSpeaker);
         _ = ShowAnswersInPanelAsync(typedScreenQuestionRunner.TurnEventLog.Follow(0, appExitCancellation.Token));
+        // Guided walkthroughs (E11): the user's clicks and scrolls on screen move a step-by-step answer on.
+        globalMouseHook = new GlobalMouseHook();
+        CursorOverlayManager overlayManager = cursorOverlayManager;
+        guidedWalkthrough = new GuidedWalkthrough(globalMouseHook, new ScreenSettleWaiter(), new GuidedWalkthroughHost
+        {
+            DrawTarget = overlayManager.Draw,
+            RemoveTarget = () => overlayManager.RemoveMarks(ScreenMarkKind.TargetRing),
+            ClearDrawing = overlayManager.ClearDrawing,
+            HasDrawing = () => overlayManager.HasDrawing,
+            InterruptTurn = typedScreenQuestionRunner.StopCurrentTurn,
+            StartFollowUp = trigger => typedScreenQuestionRunner.AnswerFollowUpAsync(trigger),
+            IsTalkKeyHeld = () => companionInteractionStateMachine.CurrentState == CompanionVoiceState.Listening
+        });
+        typedScreenQuestionRunner.Walkthrough = guidedWalkthrough;
         pushToTalkDictation = new PushToTalkDictation(cursorOverlayManager, speechToTextTranscriber,
             companionPanelWindow.SetVoiceNote, Dispatcher, interactionStateMachine: companionInteractionStateMachine,
             answerTranscriptAsync: (transcript, turnId, cancellationToken) =>
@@ -256,6 +272,8 @@ public partial class App : Application
         }
 
         pushToTalkKeyboardHook?.Dispose();
+        guidedWalkthrough?.Dispose();
+        globalMouseHook?.Dispose();
         typedScreenQuestionRunner?.DiscardPrestartedAnswer(); // Its CLI process would outlive Clicky otherwise.
         speechToTextTranscriber?.Dispose();
         textToSpeechSpeaker?.Dispose();

@@ -16,6 +16,18 @@ internal static class CompanionScreenQuestion
         string userQuestion, IReadOnlyList<CompanionScreenCapture> screenCaptures, IReadOnlyList<ConversationExchange> conversationHistory) =>
         new(CompanionSystemPrompts.CompanionVoiceResponseSystemPrompt, LabelScreenshots(screenCaptures), conversationHistory, userQuestion);
 
+    /// <summary>
+    /// The text of the turn's user message: the app's notes and the reason for the turn (a walkthrough step's [App] fact) before
+    /// whatever the user said. A follow-up has no words of the user's.
+    /// </summary>
+    public static string BuildUserPrompt(string userWords, TurnTrigger trigger, IReadOnlyList<string> appNotes)
+    {
+        List<string> lines = [.. appNotes];
+        if (trigger.AppFact is { Length: > 0 } appFact) lines.Add(appFact);
+        if (userWords.Length > 0) lines.Add(userWords);
+        return string.Join("\n", lines);
+    }
+
     /// <summary>The captures as the backend receives them; the same JPEG byte arrays, so a prestarted request can be matched.</summary>
     public static LabeledScreenshotImage[] LabelScreenshots(IReadOnlyList<CompanionScreenCapture> screenCaptures) =>
         screenCaptures.Select(capture => new LabeledScreenshotImage(capture.JpegImageBytes,

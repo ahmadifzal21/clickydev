@@ -78,10 +78,26 @@ internal sealed class TypedScreenQuestionRunner(
     /// </summary>
     public void InterruptCurrentAnswer()
     {
+        Walkthrough?.StopAll(); // A new question ends any guided step in progress.
+        StopCurrentTurn();
+    }
+
+    /// <summary>Cancels the turn in flight and its speech; the walkthrough does this itself before a step's follow-up.</summary>
+    internal void StopCurrentTurn()
+    {
         currentAnswerCancellation?.Cancel();
         textToSpeechSpeaker?.StopSpeaking();
         cursorOverlayManager.HideResponse();
     }
+
+    /// <summary>The guided walkthrough (E11 T11.12-T11.17), attached after construction since it starts this runner's follow-ups.</summary>
+    public GuidedWalkthrough? Walkthrough { get; set; }
+
+    /// <summary>The walkthrough step the last reply was on (its step(n)); a follow-up continues from it.</summary>
+    private int walkthroughStep;
+
+    /// <summary>The next step's turn, after the user did what the last one asked (clicked its target, or acted on screen).</summary>
+    public Task<string> AnswerFollowUpAsync(TurnTrigger trigger) => AnswerAsync("", trigger: trigger);
 
     /// <summary>Asks for a question, answers it; clicks while a question is in flight are ignored.</summary>
     public async void Run()
@@ -105,9 +121,16 @@ internal sealed class TypedScreenQuestionRunner(
     /// </summary>
     internal async Task<string> AnswerAsync(string userQuestion, TimeSpan delayBeforeCapture = default,
         CancellationToken callerCancellationToken = default, int? turnId = null,
-        Task<IReadOnlyList<CompanionScreenCapture>>? screenCapturesTask = null)
+        Task<IReadOnlyList<CompanionScreenCapture>>? screenCapturesTask = null, TurnTrigger? trigger = null)
     {
-        int thisTurnId = turnId ?? TurnEventLog.StartTurn("question");
+        trigger ??= TurnTrigger.Question;
+        int thisTurnId = turnId ?? TurnEventLog.StartTurn(trigger.IsWalkthrough ? trigger.Kind.ToString() : "question");
+        if (!trigger.IsWalkthrough) walkthroughStep = 0;
+        IReadOnlyList<string> appNotes = Walkthrough?.TakeNotes() ?? [];
+        string userPrompt = CompanionScreenQuestion.BuildUserPrompt(userQuestion, trigger, appNotes);
+        string historyUserText = userQuestion.Length > 0 ? userQuestion : trigger.AppFact ?? "";
+        bool armedATargetThisTurn = false;
+        int armedTargetLine = -1;
         Action logFirstSound = () => TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.SpeechStarted);
         if (textToSpeechSpeaker is not null) textToSpeechSpeaker.SoundStarted += logFirstSound;
         isRunning = true;
@@ -125,11 +148,18 @@ internal sealed class TypedScreenQuestionRunner(
         // starts on the first complete line while the backend is still writing the rest.
         Channel<string> textDeltas = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
         IReadOnlyList<CompanionScreenCapture> screenCaptures = [];
-        ReplyPlayback replyPlayback = new(textToSpeechSpeaker,
+        ReplyPlayback replyPlayback = null!; // Assigned next; PerformReplyCall reads it only once the reply plays.
+        replyPlayback = new(textToSpeechSpeaker,
             onSpeechStarting: () => interactionStateMachine.Apply(CompanionInteractionTrigger.ReplyReady), // Responding while speaking.
             showText: cursorOverlayManager.ShowResponseText, perform: PerformReplyCall, cancellationToken);
+        // A target counts only in the reply's last line: when more lines follow, it was just shown, not a step to wait on.
+        replyPlayback.LineAdded += lineCount =>
+        {
+            if (armedATargetThisTurn && armedTargetLine < lineCount - 1 && Walkthrough?.HasTarget == true)
+                Walkthrough.DisarmTarget("more lines follow it");
+        };
 
-        void PerformReplyCall(ProgramCall call)
+        void PerformReplyCall(ProgramCall call, int lineIndex)
         {
             switch (call.Name)
             {
@@ -138,6 +168,13 @@ internal sealed class TypedScreenQuestionRunner(
                     break;
                 case "click" or "hover" when call.LeadingNumbers() is [var left, var top, var right, var bottom, ..]:
                     PointAtReplyTarget((left + right) / 2, (top + bottom) / 2, call.ScreenNumber, call.Label);
+                    if (lineIndex >= replyPlayback.LineCount - 1)
+                    {
+                        armedATargetThisTurn = true;
+                        armedTargetLine = lineIndex;
+                        _ = ArmTargetAsync(call, left, top, right, bottom, replyPlayback.Step ?? Math.Max(1, trigger.WalkthroughStep ?? 1),
+                            screenCaptures, cancellationToken);
+                    }
                     break;
                 case "clear":
                     cursorOverlayManager.ClearDrawing();
@@ -179,7 +216,7 @@ internal sealed class TypedScreenQuestionRunner(
             try
             {
                 routedResponse = await chatBackendRouter.GetResponseAsync(CompanionJobKind.Answer,
-                    CompanionScreenQuestion.BuildChatRequest(userQuestion, screenCaptures, conversationHistory.GetExchanges()),
+                    CompanionScreenQuestion.BuildChatRequest(userPrompt, screenCaptures, conversationHistory.GetExchanges()),
                     cancellationToken, textDelta =>
                     {
                         TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.TextDelta, textDelta);
@@ -198,12 +235,14 @@ internal sealed class TypedScreenQuestionRunner(
             Trace.WriteLine($"Reply text ({routedResponse.AnsweringBackendKind}): {routedResponse.ResponseText.ReplaceLineEndings(" | ")}");
 
             replyPlayback.Finish(routedResponse.ResponseText);
-            conversationHistory.Record(userQuestion, replyPlayback.HistoryText);
+            conversationHistory.Record(historyUserText, replyPlayback.HistoryText);
             bubbleText = replyPlayback.VisibleText;
             // Responding (or Idle) before pointing: both draw the triangle, which the spinner would hide during the flight.
             if (!replyPlayback.HasStartedSpeaking) interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
             ShowFinishedResponse(bubbleText);
+            walkthroughStep = replyPlayback.Step ?? trigger.WalkthroughStep ?? walkthroughStep;
             await replyPlayback.WaitUntilPlayedAsync();
+            WatchForTheNextStep(replyPlayback, armedATargetThisTurn, screenCaptures, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -236,6 +275,53 @@ internal sealed class TypedScreenQuestionRunner(
         interactionStateMachine.Apply(CompanionInteractionTrigger.InteractionEnded);
         cursorOverlayManager.ScheduleTransientHide();
         return bubbleText;
+    }
+
+    /// <summary>
+    /// A click/hover target in the reply's last line: snap its box to the real control, then arm it, and prestart the next
+    /// step's Claude process while the user reaches for the mouse (Claude's prestart matches on the prompt alone).
+    /// </summary>
+    private async Task ArmTargetAsync(ProgramCall call, double left, double top, double right, double bottom, int step,
+        IReadOnlyList<CompanionScreenCapture> screenCaptures, CancellationToken cancellationToken)
+    {
+        if (Walkthrough is null || CompanionScreenQuestion.CaptureForScreen(call.ScreenNumber, screenCaptures) is not { } capture) return;
+        Point? topLeft = CompanionScreenQuestion.ResolveScreenshotPoint(
+            new ScreenshotPixelCoordinate(Math.Min(left, right), Math.Min(top, bottom)), call.ScreenNumber, screenCaptures);
+        Point? bottomRight = CompanionScreenQuestion.ResolveScreenshotPoint(
+            new ScreenshotPixelCoordinate(Math.Max(left, right), Math.Max(top, bottom)), call.ScreenNumber, screenCaptures);
+        if (topLeft is null || bottomRight is null) return;
+        Rect box = new(topLeft.Value, bottomRight.Value);
+        PixelRect monitorBounds = capture.CapturedMonitor.Bounds;
+        Rect? snapped = await Automation.UiaControlSnapper.SnapAsync(box,
+            new Rect(monitorBounds.Left, monitorBounds.Top, monitorBounds.Width, monitorBounds.Height));
+        if (cancellationToken.IsCancellationRequested) return;
+        Walkthrough.ArmTarget(new GuidedTarget(snapped ?? box, call.Label ?? "the target", call.Name == "hover", step, monitorBounds,
+            capture.CapturedMonitor.DpiScaleX));
+        PrestartTheNextStep();
+    }
+
+    /// <summary>
+    /// After a reply has played: a step without a target whose last line tells the user to do something arms the step
+    /// watcher; any marks left on screen are watched so they go once the screen changes under them.
+    /// </summary>
+    private void WatchForTheNextStep(ReplyPlayback replyPlayback, bool armedATarget, IReadOnlyList<CompanionScreenCapture> screenCaptures,
+        CancellationToken cancellationToken)
+    {
+        if (Walkthrough is null || cancellationToken.IsCancellationRequested) return;
+        if (screenCaptures.FirstOrDefault(capture => capture.IsCursorScreen) is not { } cursorCapture) return;
+        PixelRect monitorBounds = cursorCapture.CapturedMonitor.Bounds;
+        if (!armedATarget && replyPlayback.HasMarks && GuidedWalkthrough.IsInstruction(replyPlayback.LastLineText))
+        {
+            Walkthrough.ArmStepWatch(monitorBounds, Math.Max(1, walkthroughStep));
+            PrestartTheNextStep();
+        }
+        if (cursorOverlayManager.HasDrawing) Walkthrough.WatchDrawing(monitorBounds);
+    }
+
+    private void PrestartTheNextStep()
+    {
+        if (chatBackendRouter.RoutedBackend(CompanionJobKind.Answer) == ChatBackendKind.ClaudeCodeCli)
+            chatBackendRouter.Prestart(CompanionJobKind.Answer, CompanionSystemPrompts.CompanionVoiceResponseSystemPrompt, []);
     }
 
     private static async Task SpeakErrorLineAsync(ITextToSpeechSpeaker textToSpeechSpeaker, CancellationToken cancellationToken)

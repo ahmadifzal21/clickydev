@@ -13,7 +13,7 @@ namespace Clicky.Windows.Companion;
 /// </summary>
 internal sealed class ReplyPlayback(
     ITextToSpeechSpeaker? textToSpeechSpeaker, Action onSpeechStarting, Action<string> showText,
-    Action<ProgramCall> perform, CancellationToken cancellationToken)
+    Action<ProgramCall, int> perform, CancellationToken cancellationToken)
 {
     /// <summary>Speaking rate used to guess a line's length; Kokoro's default voice is close to this.</summary>
     internal const double EstimatedWordsPerSecond = 2.6;
@@ -30,15 +30,28 @@ internal sealed class ReplyPlayback(
     private Task silentPlayback = Task.CompletedTask;
 
     /// <summary>One spoken line and the calls it owns.</summary>
-    private sealed class LineGroup(string text)
+    private sealed class LineGroup(string text, int index)
     {
         public string Text { get; } = text;
+        public int Index { get; } = index;
         public double WordCount { get; set; } = CountWords(text);
         public List<ProgramCall> PendingCalls { get; } = [];
         public bool HasStarted { get; set; }
     }
 
     public bool HasReceivedText { get; private set; }
+
+    /// <summary>How many spoken lines the reply has so far (sentences continuing a prose line don't count).</summary>
+    public int LineCount { get; private set; }
+
+    /// <summary>The last spoken line so far, whole (continuing sentences included).</summary>
+    public string LastLineText { get; private set; } = "";
+
+    /// <summary>True once the reply has pointed, drawn or targeted anything.</summary>
+    public bool HasMarks { get; private set; }
+
+    /// <summary>A new line arrived; the argument is the new <see cref="LineCount"/>. Calls are passed their line's index.</summary>
+    public event Action<int>? LineAdded;
     public bool HasStartedSpeaking { get; private set; }
 
     /// <summary>Finishes when everything queued has been said (or the speech was stopped).</summary>
@@ -83,7 +96,7 @@ internal sealed class ReplyPlayback(
         if (!HasReceivedText) foreach (ProgramCall call in replyProgramReader.Add(fullReplyText)) Handle(call);
         foreach (ProgramCall call in replyProgramReader.Finish()) Handle(call);
         // A program with marks but nothing to say: there is no line to wait for.
-        if (currentLine is null) foreach (ProgramCall call in callsBeforeTheFirstLine) PerformIfStillRunning(call);
+        if (currentLine is null) foreach (ProgramCall call in callsBeforeTheFirstLine) PerformIfStillRunning(call, 0);
         callsBeforeTheFirstLine.Clear();
         spokenLines.Writer.TryComplete();
         silentLines.Writer.TryComplete();
@@ -112,6 +125,7 @@ internal sealed class ReplyPlayback(
         }
         if (call.Label is { Length: > 0 } label && call.Name is "point" or "click" or "hover" or "ring" or "box" or "underline" or "highlight")
             markedLabels.Add(label);
+        if (call.Name is "point" or "click" or "hover" || ScreenMarkBuilder.DrawingCallNames.Contains(call.Name)) HasMarks = true;
 
         // A sentence that continues a prose line hands its marks to the line's first sentence.
         LineGroup? owner = currentLine is not null && currentLine != currentLineStart ? currentLineStart : currentLine;
@@ -120,7 +134,7 @@ internal sealed class ReplyPlayback(
             callsBeforeTheFirstLine.Add(call);
             return;
         }
-        if (owner.HasStarted) PerformIfStillRunning(call); // Its line is already playing: no reason to wait.
+        if (owner.HasStarted) PerformIfStillRunning(call, owner.Index); // Its line is already playing: no reason to wait.
         else owner.PendingCalls.Add(call);
     }
 
@@ -131,11 +145,14 @@ internal sealed class ReplyPlayback(
         {
             // Spoken as its own piece (speech starts sooner), but its marks join the line's first sentence.
             currentLineStart.WordCount += CountWords(text);
-            currentLine = new LineGroup(text);
+            LastLineText += " " + text;
+            currentLine = new LineGroup(text, currentLineStart.Index);
             QueueLine(currentLine, text, onStarted: null);
             return;
         }
-        LineGroup line = new(text);
+        LineGroup line = new(text, LineCount);
+        LineCount++;
+        LastLineText = text;
         if (currentLine is null)
         {
             line.PendingCalls.AddRange(callsBeforeTheFirstLine);
@@ -144,6 +161,7 @@ internal sealed class ReplyPlayback(
         currentLine = line;
         currentLineStart = line;
         QueueLine(line, text, () => Release(line));
+        LineAdded?.Invoke(LineCount);
     }
 
     private void QueueLine(LineGroup line, string text, Action? onStarted)
@@ -172,20 +190,20 @@ internal sealed class ReplyPlayback(
         List<ProgramCall> calls = [.. line.PendingCalls];
         line.PendingCalls.Clear();
         if (calls.Count == 0) return;
-        PerformIfStillRunning(calls[0]);
+        PerformIfStillRunning(calls[0], line.Index);
         if (calls.Count == 1) return;
         TimeSpan spread = TimeSpan.FromSeconds(0.8 * line.WordCount / EstimatedWordsPerSecond);
-        markReleases.Add(PerformSpreadAsync(calls, spread));
+        markReleases.Add(PerformSpreadAsync(calls, line.Index, spread));
     }
 
-    private async Task PerformSpreadAsync(List<ProgramCall> calls, TimeSpan spread)
+    private async Task PerformSpreadAsync(List<ProgramCall> calls, int lineIndex, TimeSpan spread)
     {
         try
         {
             for (int index = 1; index < calls.Count; index++)
             {
                 await Task.Delay(spread / calls.Count, cancellationToken);
-                PerformIfStillRunning(calls[index]);
+                PerformIfStillRunning(calls[index], lineIndex);
             }
         }
         catch (OperationCanceledException)
@@ -213,9 +231,9 @@ internal sealed class ReplyPlayback(
 
     internal static TimeSpan ReadingTime(double wordCount) => TimeSpan.FromSeconds(Math.Clamp(0.8 + 0.28 * wordCount, 1.6, 6));
 
-    private void PerformIfStillRunning(ProgramCall call)
+    private void PerformIfStillRunning(ProgramCall call, int lineIndex)
     {
-        if (!cancellationToken.IsCancellationRequested) perform(call);
+        if (!cancellationToken.IsCancellationRequested) perform(call, lineIndex);
     }
 
     private static double CountWords(string text) => text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;

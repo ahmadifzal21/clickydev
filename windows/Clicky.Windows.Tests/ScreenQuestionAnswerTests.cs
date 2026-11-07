@@ -329,6 +329,68 @@ public class ScreenQuestionAnswerTests
         Assert.Equal("html is the skeleton of a web page.", bubbleText);
     }
 
+    private sealed class StillMouse : IMouseEventSource
+    {
+        public event Action<Clicky.Windows.Input.LowLevelMouseEvent>? MouseEventObserved { add { } remove { } }
+        public IDisposable Acquire() => new NoLease();
+        private sealed class NoLease : IDisposable { public void Dispose() { } }
+    }
+
+    private sealed class SteadyScreen : IScreenSampler
+    {
+        private int sampleCount;
+        public byte[]? Sample(PixelRect area) => Enumerable.Repeat((byte)(sampleCount++ == 0 ? 0 : 200), 64).ToArray();
+    }
+
+    [Fact]
+    public void Walkthrough_ClickingTheStepsTarget_RunsTheNextStepWithAFreshScreenAndTheAppsFact() => StaTestThread.Run(() =>
+    {
+        using DisplayMonitorCatalog displayMonitorCatalog = new();
+        using CursorOverlayManager cursorOverlayManager = new(displayMonitorCatalog, isCursorAlwaysVisible: false);
+        FakeSpeaker speaker = new();
+        int requestCount = 0;
+        FakeBackend backend = new(_ => Task.FromResult(++requestCount == 1
+            ? "```clicky\nstep(1)\nsay(\"open the file menu.\")\nclick(600, 300, 680, 330, \"file menu\")\nseen(\"in an editor\")\n```"
+            : "```clicky\nstep(2)\nsay(\"done.\")\n```"));
+        ChatBackendRouter router = new(() => new JobBackendRouting { Answer = ChatBackendKind.ClaudeCodeCli, Fallback = null }, [backend]);
+        CompanionConversationHistory history = new();
+        TypedScreenQuestionRunner runner = new(cursorOverlayManager, displayMonitorCatalog, router, history, textToSpeechSpeaker: speaker);
+        TaskCompletionSource<string> followUp = new();
+        GuidedWalkthrough walkthrough = new(new StillMouse(), new ScreenSettleWaiter(new SteadyScreen()), new GuidedWalkthroughHost
+        {
+            DrawTarget = cursorOverlayManager.Draw,
+            RemoveTarget = () => cursorOverlayManager.RemoveMarks(ScreenMarkKind.TargetRing),
+            ClearDrawing = cursorOverlayManager.ClearDrawing,
+            HasDrawing = () => cursorOverlayManager.HasDrawing,
+            InterruptTurn = runner.StopCurrentTurn,
+            StartFollowUp = async trigger => followUp.TrySetResult(await runner.AnswerFollowUpAsync(trigger)),
+            IsTalkKeyHeld = () => false,
+            ForegroundProcessId = () => 1,
+            IsClickyWindowAt = (_, _) => false
+        });
+        runner.Walkthrough = walkthrough;
+
+        StaTestThread.WaitFor(runner.AnswerAsync("how do i export this"));
+        DateTime deadline = DateTime.UtcNow.AddSeconds(3); // The target arms after its UI Automation snap (300 ms at most).
+        while (!walkthrough.HasTarget && DateTime.UtcNow < deadline) StaTestThread.WaitFor(Task.Delay(50));
+        Assert.True(walkthrough.HasTarget);
+        Assert.Equal("file menu", walkthrough.Target!.Label);
+        Assert.Equal(1, walkthrough.Target.Step);
+
+        System.Windows.Point center = walkthrough.Target.Center;
+        walkthrough.HandleMouseEvent(new Clicky.Windows.Input.LowLevelMouseEvent(Clicky.Windows.Input.LowLevelMouseEventKind.LeftDown,
+            (int)center.X, (int)center.Y, 0));
+        StaTestThread.WaitFor(followUp.Task);
+
+        Assert.Equal(2, backend.UserPrompts.Count);
+        Assert.StartsWith("[App] They clicked \"file menu\", the step you asked for.", backend.UserPrompts[1]);
+        Assert.Equal(["open the file menu.", "done."], speaker.SpokenTexts);
+        Assert.Equal(2, backend.ImageLabels.Count(label => label.Contains("cursor") || label.Contains("screen")) / Math.Max(1, displayMonitorCatalog.Monitors.Count));
+        Assert.StartsWith("[App] They clicked", history.GetExchanges()[1].UserTranscript);
+        Assert.False(walkthrough.HasTarget);
+        walkthrough.Dispose();
+    });
+
     private static CompanionScreenCapture FakePressCapture()
     {
         PixelRect bounds = new(0, 0, 1920, 1080);

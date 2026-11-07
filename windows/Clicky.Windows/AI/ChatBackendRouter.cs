@@ -50,6 +50,9 @@ internal sealed class ChatBackendRouter(Func<JobBackendRouting> getCurrentRoutin
         }
     }
 
+    /// <summary>The backend the job is routed to right now.</summary>
+    public ChatBackendKind RoutedBackend(CompanionJobKind companionJobKind) => getCurrentRouting().GetBackendForJob(companionJobKind);
+
     /// <summary>Prestarts the request on the backend the job is routed to now (see <see cref="ICompanionChatBackend.Prestart"/>).</summary>
     public void Prestart(CompanionJobKind companionJobKind, string systemPrompt, IReadOnlyList<LabeledScreenshotImage> screenshots)
     {
