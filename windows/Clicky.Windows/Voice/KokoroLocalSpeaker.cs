@@ -1,0 +1,519 @@
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Channels;
+using Clicky.Windows.Configuration;
+using KokoroSharp;
+using KokoroSharp.Core;
+using KokoroSharp.Processing;
+using NAudio.Wave;
+
+namespace Clicky.Windows.Voice;
+
+/// <summary>One line of a reply to speak. <paramref name="OnStarted"/> runs (on the caller's thread) when its audio starts.</summary>
+internal sealed record SpokenLine(string Text, Action? OnStarted = null);
+
+/// <summary>Speaks Clicky's replies aloud. Port target of the Mac's ElevenLabsTTSClient.</summary>
+internal interface ITextToSpeechSpeaker : IDisposable
+{
+    /// <summary>Short human-readable state ("Downloading voice model: 42%"), shown in the panel.</summary>
+    event Action<string>? StatusChanged;
+
+    /// <summary>Raised when a <see cref="SpeakAsync"/> call's first audio starts playing (used for turn timing).</summary>
+    event Action? SoundStarted;
+
+    /// <summary>True from the start of <see cref="SpeakAsync"/> until the speech ends or is stopped.</summary>
+    bool IsSpeaking { get; }
+
+    /// <summary>Loads (downloading first if needed) whatever the voice settings ask for. Safe to call repeatedly.</summary>
+    void Prepare(VoiceSettings voiceSettings);
+
+    /// <summary>Stops anything already speaking, then speaks <paramref name="text"/>. Finishes when the speech ends or is stopped.</summary>
+    Task SpeakAsync(string text, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stops anything already speaking, then speaks each line as it arrives (a reply still being written), back to back.
+    /// Finishes when the reader is complete and everything has been said, or when the speech is stopped. Never throws.
+    /// </summary>
+    Task SpeakLinesAsync(ChannelReader<SpokenLine> spokenLines, CancellationToken cancellationToken);
+
+    void StopSpeaking();
+}
+
+internal static class SpokenLines
+{
+    /// <summary>A reader holding just <paramref name="text"/>, for speaking a whole reply in one go.</summary>
+    public static ChannelReader<SpokenLine> Single(string text)
+    {
+        Channel<SpokenLine> spokenLines = Channel.CreateUnbounded<SpokenLine>();
+        spokenLines.Writer.TryWrite(new SpokenLine(text));
+        spokenLines.Writer.TryComplete();
+        return spokenLines.Reader;
+    }
+
+    /// <summary><paramref name="firstLine"/> (if any) followed by whatever <paramref name="laterLines"/> still brings.</summary>
+    public static ChannelReader<SpokenLine> Prepend(SpokenLine? firstLine, ChannelReader<SpokenLine> laterLines, CancellationToken cancellationToken)
+    {
+        Channel<SpokenLine> spokenLines = Channel.CreateUnbounded<SpokenLine>();
+        if (firstLine is not null) spokenLines.Writer.TryWrite(firstLine);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (SpokenLine laterLine in laterLines.ReadAllAsync(cancellationToken)) spokenLines.Writer.TryWrite(laterLine);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                spokenLines.Writer.TryComplete();
+            }
+        }, CancellationToken.None);
+        return spokenLines.Reader;
+    }
+}
+
+internal static class TextToSpeechSpeakerFactory
+{
+    /// <summary>
+    /// Only Kokoro exists for now: ElevenLabs (T7.4) is built only if local speech feels slow or flat after E8, so
+    /// "eleven-labs" still gets Kokoro, with a log line saying so.
+    /// </summary>
+    public static ITextToSpeechSpeaker Create(VoiceSettings voiceSettings)
+    {
+        if (voiceSettings.TextToSpeech != TextToSpeechProviderKind.KokoroLocal)
+        {
+            Console.WriteLine($"Text-to-speech \"{voiceSettings.TextToSpeech}\" isn't built yet; using local Kokoro.");
+        }
+
+        return new KokoroLocalSpeaker();
+    }
+}
+
+/// <summary>The loaded model, reduced to what the speaker needs, so tests can stand in a fake that fails or is slow.</summary>
+/// <param name="Synthesize">Tokens + voice style -> 24 kHz mono samples. Can't be interrupted once started (one ONNX run).</param>
+internal sealed record KokoroInference(Func<int[], float[,,], float[]> Synthesize, Action Release)
+{
+    public static KokoroInference Load(string modelFilePath)
+    {
+        KokoroModel kokoroModel = new(modelFilePath);
+        return new KokoroInference((tokens, voiceStyle) => kokoroModel.Infer(tokens, voiceStyle), kokoroModel.Dispose);
+    }
+}
+
+/// <summary>
+/// Kokoro-82M in-process (ONNX Runtime, CPU; DirectML fails on the Arc GPU, see the E7 ticket log). The ~320 MB model is
+/// downloaded on first use and loaded once; voices are the .npy files in the voices folder beside Clicky.exe. Until the model
+/// is ready, or if Kokoro fails before making a sound, replies are spoken with Windows' built-in voice instead.
+/// <para>
+/// Uses KokoroSharp's model, tokenizer and segmenter but not its KokoroTTS/SpeakFast player: that one runs inference on its own
+/// thread with no exception handling (an ONNX error there would end Clicky) and reports the end of speech only through
+/// callbacks (a failure mid-reply would leave the speech "running" forever). Here inference runs in our own task, every error is
+/// caught, and <see cref="SpeakAsync"/> finishes when that task does. <see cref="SpeakAsync"/> and <see cref="StopSpeaking"/>
+/// are called from the UI thread.
+/// </para>
+/// </summary>
+internal sealed class KokoroLocalSpeaker : ITextToSpeechSpeaker
+{
+    public const string DefaultVoiceName = "af_heart";
+
+    /// <summary>
+    /// The first chunk is synthesized before anything plays, so it's kept short: 30 tokens gave first sound in ~0.8 s on the
+    /// dev PC's CPU against ~2 s with KokoroSharp's 200, for about a second more in total.
+    /// </summary>
+    private static readonly DefaultSegmentationConfig QuickFirstSoundSegmentation = new() { MaxFirstSegmentLength = 30 };
+
+    /// <summary>KokoroSharp's natural pauses after a chunk ending in punctuation (0.5 s after a period, 0.1 s after a comma).</summary>
+    private static readonly PauseAfterSegmentStrategy PauseAfterPunctuation = new();
+
+    /// <summary>
+    /// Played after the last chunk. The speech counts as finished once the queued audio has been handed to the sound card,
+    /// which still holds up to WaveOutEvent's 300 ms latency; this silence is what's left there, so stopping then cuts nothing.
+    /// </summary>
+    private static readonly TimeSpan TrailingSilence = TimeSpan.FromMilliseconds(500);
+
+    private const string KokoroModelDownloadUrl = "https://github.com/Lyrcaxis/KokoroSharpBinaries/releases/download/v2.0.0/kokoro.onnx";
+
+    private readonly Func<Action<int>, CancellationToken, Task<string>> ensureModelDownloadedAsync;
+    private readonly Func<string, KokoroInference> loadKokoroInference;
+    private readonly Func<IWavePlayer> createWavePlayer;
+    private readonly ITextToSpeechSpeaker fallbackSpeaker;
+    private readonly CancellationTokenSource disposalCancellation = new();
+
+    /// <summary>One synthesis at a time: a reply that was just stopped may still be finishing its last ONNX run.</summary>
+    private readonly SemaphoreSlim inferenceLock = new(1, 1);
+    private KokoroInference? loadedKokoroInference;
+    private KokoroVoice? selectedKokoroVoice;
+    private bool isModelLoadStarted;
+
+    /// <summary>Completed by <see cref="Prepare"/> (a config save) to cut short the wait before the next load attempt.</summary>
+    private TaskCompletionSource retryLoadNowSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Func<int, TimeSpan> getRetryDelayAfterFailedAttempts;
+    private string currentStatus = "Voice model not loaded yet.";
+    private CancellationTokenSource? currentSpeechCancellation;
+    private Task currentKokoroSpeech = Task.CompletedTask;
+
+    public KokoroLocalSpeaker() : this(EnsureModelDownloadedAsync, KokoroInference.Load, () => new WaveOutEvent(), new WindowsBuiltInSpeaker())
+    {
+    }
+
+    /// <summary>
+    /// Takes the download, model, sound output and fallback voice so tests run without the network, the model or speakers,
+    /// and the wait between load attempts so they needn't wait 30 s.
+    /// </summary>
+    internal KokoroLocalSpeaker(Func<Action<int>, CancellationToken, Task<string>> ensureModelDownloadedAsync,
+        Func<string, KokoroInference> loadKokoroInference, Func<IWavePlayer> createWavePlayer, ITextToSpeechSpeaker fallbackSpeaker,
+        Func<int, TimeSpan>? getRetryDelayAfterFailedAttempts = null)
+    {
+        this.ensureModelDownloadedAsync = ensureModelDownloadedAsync;
+        this.loadKokoroInference = loadKokoroInference;
+        this.createWavePlayer = createWavePlayer;
+        this.fallbackSpeaker = fallbackSpeaker;
+        fallbackSpeaker.SoundStarted += () => SoundStarted?.Invoke();
+        this.getRetryDelayAfterFailedAttempts = getRetryDelayAfterFailedAttempts ?? GetDefaultRetryDelay;
+    }
+
+    /// <summary>
+    /// Load failures are mostly a first-run download with no network, so retry soon, then back off: 30 s, 2 min, then every
+    /// 10 min. Until it loads, replies use the Windows voice.
+    /// </summary>
+    internal static TimeSpan GetDefaultRetryDelay(int failedAttemptCount) => failedAttemptCount switch
+    {
+        1 => TimeSpan.FromSeconds(30),
+        2 => TimeSpan.FromMinutes(2),
+        _ => TimeSpan.FromMinutes(10)
+    };
+
+    public event Action<string>? StatusChanged;
+
+    public event Action? SoundStarted;
+
+    public bool IsSpeaking => !currentKokoroSpeech.IsCompleted || fallbackSpeaker.IsSpeaking;
+
+    public static Task<string> EnsureModelDownloadedAsync(Action<int> reportDownloadPercent, CancellationToken cancellationToken) =>
+        EnsureModelDownloadedAsync(reportDownloadPercent, ModelFileDownload.SharedModelDownloadHttpClient,
+            ModelFileDownload.ModelsFolderPath, cancellationToken);
+
+    internal static async Task<string> EnsureModelDownloadedAsync(Action<int> reportDownloadPercent,
+        System.Net.Http.HttpClient modelDownloadHttpClient, string modelsFolderPath, CancellationToken cancellationToken)
+    {
+        string modelFilePath = Path.Combine(modelsFolderPath, "kokoro-v1.0.onnx");
+        if (!File.Exists(modelFilePath))
+        {
+            await ModelFileDownload.DownloadAsync(KokoroModelDownloadUrl, modelFilePath, "the Kokoro voice model",
+                reportDownloadPercent, modelDownloadHttpClient, cancellationToken);
+        }
+
+        return modelFilePath;
+    }
+
+    public void Prepare(VoiceSettings voiceSettings)
+    {
+        SelectVoice(voiceSettings.KokoroVoice);
+        if (!isModelLoadStarted)
+        {
+            isModelLoadStarted = true;
+            _ = LoadModelWithRetriesAsync(disposalCancellation.Token);
+        }
+        else
+        {
+            retryLoadNowSignal.TrySetResult(); // Only matters while waiting to retry: try again now.
+        }
+    }
+
+    public Task SpeakAsync(string text, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(text)) return SpeakLinesAsync(SpokenLines.Single(text), cancellationToken);
+        StopSpeaking();
+        return Task.CompletedTask;
+    }
+
+    public async Task SpeakLinesAsync(ChannelReader<SpokenLine> spokenLines, CancellationToken cancellationToken)
+    {
+        StopSpeaking();
+        if (loadedKokoroInference is not { } kokoroInference || selectedKokoroVoice is not { } kokoroVoice)
+        {
+            Console.WriteLine($"Kokoro isn't ready ({currentStatus}); speaking with the Windows voice.");
+            await fallbackSpeaker.SpeakLinesAsync(spokenLines, cancellationToken);
+            return;
+        }
+
+        CancellationTokenSource speechCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        currentSpeechCancellation = speechCancellation;
+        currentKokoroSpeech = SpeakWithKokoroAsync(spokenLines, kokoroInference, kokoroVoice, speechCancellation.Token);
+        await currentKokoroSpeech;
+    }
+
+    public void StopSpeaking()
+    {
+        currentSpeechCancellation?.Cancel();
+        fallbackSpeaker.StopSpeaking();
+    }
+
+    /// <summary>
+    /// Synthesizes line by line, chunk by chunk, and plays each chunk as soon as it's ready. A line's OnStarted runs when playback
+    /// reaches the line's first audio (tracked by bytes played, so it follows the sound card, not a timer). Never throws.
+    /// </summary>
+    private async Task SpeakWithKokoroAsync(ChannelReader<SpokenLine> spokenLines, KokoroInference kokoroInference, KokoroVoice kokoroVoice,
+        CancellationToken speechCancellationToken)
+    {
+        Stopwatch firstSoundStopwatch = Stopwatch.StartNew();
+        BufferedWaveProvider queuedSpeechAudio = new(KokoroPlayback.waveFormat)
+        {
+            // Plays silence while waiting for the next chunk instead of stopping; a whole reply always fits.
+            ReadFully = true,
+            BufferDuration = TimeSpan.FromMinutes(10)
+        };
+        long queuedByteCount = 0;
+        Queue<(long StartByte, Action OnStarted)> pendingLineStarts = new();
+        bool hasStartedPlaying = false;
+        SpokenLine? lineInProgress = null;
+        using CancellationTokenSource stopWatchingLineStarts = CancellationTokenSource.CreateLinkedTokenSource(speechCancellationToken);
+        Task watchingLineStarts = Task.CompletedTask;
+
+        void QueueAudio(float[] samples)
+        {
+            byte[] sampleBytes = KokoroPlayback.GetBytes(samples);
+            queuedSpeechAudio.AddSamples(sampleBytes, 0, sampleBytes.Length);
+            queuedByteCount += sampleBytes.Length;
+        }
+
+        void QueueSilence(TimeSpan silenceDuration) =>
+            QueueAudio(new float[(int)(silenceDuration.TotalSeconds * KokoroPlayback.waveFormat.SampleRate)]);
+
+        void RunLineStartsThatHavePlayed()
+        {
+            long playedByteCount = queuedByteCount - queuedSpeechAudio.BufferedBytes;
+            while (pendingLineStarts.Count > 0 && pendingLineStarts.Peek().StartByte <= playedByteCount)
+            {
+                pendingLineStarts.Dequeue().OnStarted();
+            }
+        }
+
+        async Task WatchLineStartsAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (true)
+                {
+                    RunLineStartsThatHavePlayed();
+                    await Task.Delay(30, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        try
+        {
+            using IWavePlayer wavePlayer = createWavePlayer();
+            wavePlayer.Init(queuedSpeechAudio);
+            using CancellationTokenRegistration stopPlaybackOnCancel = speechCancellationToken.Register(wavePlayer.Stop);
+
+            await foreach (SpokenLine spokenLine in spokenLines.ReadAllAsync(speechCancellationToken))
+            {
+                lineInProgress = spokenLine;
+                if (spokenLine.OnStarted is not null)
+                {
+                    pendingLineStarts.Enqueue((queuedByteCount, spokenLine.OnStarted));
+                }
+
+                if (string.IsNullOrWhiteSpace(spokenLine.Text))
+                {
+                    if (!hasStartedPlaying) RunLineStartsThatHavePlayed(); // A line that only points, before any sound.
+                    lineInProgress = null;
+                    continue;
+                }
+
+                // Only the very first chunk is kept short; later lines are synthesized while earlier ones are still being heard.
+                List<int[]> tokenChunks = await RunExclusiveInferenceAsync(() => SegmentationSystem.SplitToSegments(
+                    Tokenizer.Tokenize(spokenLine.Text.Trim(), KokoroLangCodeHelper.GetLangCode(kokoroVoice)),
+                    hasStartedPlaying ? new DefaultSegmentationConfig() : QuickFirstSoundSegmentation), speechCancellationToken);
+                foreach (int[] tokenChunk in tokenChunks)
+                {
+                    float[] chunkSamples = await RunExclusiveInferenceAsync(
+                        () => KokoroPlayback.PostProcessSamples(kokoroInference.Synthesize(tokenChunk, kokoroVoice.Features)),
+                        speechCancellationToken);
+                    speechCancellationToken.ThrowIfCancellationRequested();
+                    QueueAudio(chunkSamples);
+                    if (tokenChunk.Length > 0 && Tokenizer.PunctuationTokens.Contains(tokenChunk[^1]))
+                    {
+                        QueueSilence(TimeSpan.FromSeconds(PauseAfterPunctuation[Tokenizer.TokenToChar[tokenChunk[^1]]]));
+                    }
+
+                    if (!hasStartedPlaying)
+                    {
+                        hasStartedPlaying = true;
+                        wavePlayer.Play();
+                        SoundStarted?.Invoke();
+                        RunLineStartsThatHavePlayed();
+                        watchingLineStarts = WatchLineStartsAsync(stopWatchingLineStarts.Token);
+                        Console.WriteLine($"Kokoro first sound after {firstSoundStopwatch.ElapsedMilliseconds} ms");
+                    }
+                }
+                lineInProgress = null;
+            }
+
+            QueueSilence(TrailingSilence);
+            while (queuedSpeechAudio.BufferedBytes > 0)
+            {
+                await Task.Delay(50, speechCancellationToken);
+            }
+
+            RunLineStartsThatHavePlayed(); // Everything has played, so every line has started.
+            wavePlayer.Stop();
+        }
+        catch (OperationCanceledException) when (speechCancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"Kokoro failed to speak: {exception}");
+            if (!hasStartedPlaying)
+            {
+                // Nothing was heard yet, so the Windows voice can say the whole reply. Mid-reply it just stops: restarting
+                // in another voice would repeat what was already said.
+                await fallbackSpeaker.SpeakLinesAsync(SpokenLines.Prepend(lineInProgress, spokenLines, speechCancellationToken),
+                    speechCancellationToken);
+            }
+        }
+        finally
+        {
+            stopWatchingLineStarts.Cancel();
+            await watchingLineStarts;
+        }
+    }
+
+    /// <summary>
+    /// Runs tokenizing or synthesis off the UI thread, one at a time. An ONNX run can't be interrupted, so on cancel this
+    /// returns at once and the run finishes in the background, still holding the lock so the next one waits for it.
+    /// </summary>
+    private Task<TResult> RunExclusiveInferenceAsync<TResult>(Func<TResult> runInference, CancellationToken cancellationToken) =>
+        RunUnderInferenceLockAsync(runInference, cancellationToken).WaitAsync(cancellationToken);
+
+    private async Task<TResult> RunUnderInferenceLockAsync<TResult>(Func<TResult> runInference, CancellationToken cancellationToken)
+    {
+        await inferenceLock.WaitAsync(cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested(); // Queued for speech that has since been stopped: skip the run.
+            return await Task.Run(runInference, CancellationToken.None);
+        }
+        finally
+        {
+            inferenceLock.Release();
+        }
+    }
+
+    private void SelectVoice(string kokoroVoiceName)
+    {
+        try
+        {
+            selectedKokoroVoice = KokoroVoiceManager.GetVoice(kokoroVoiceName);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or DirectoryNotFoundException)
+        {
+            selectedKokoroVoice = null;
+            Console.WriteLine($"Kokoro voice \"{kokoroVoiceName}\" not found: {exception.Message}");
+            ReportStatus($"Kokoro voice \"{kokoroVoiceName}\" not found (try \"{DefaultVoiceName}\"); using the Windows voice.");
+        }
+    }
+
+    /// <summary>Keeps trying until the model loads or Clicky exits. Never throws.</summary>
+    private async Task LoadModelWithRetriesAsync(CancellationToken cancellationToken)
+    {
+        for (int failedAttemptCount = 1; ; failedAttemptCount++)
+        {
+            retryLoadNowSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Exception? loadException = await TryLoadModelAsync(cancellationToken);
+            if (loadException is null || cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            TimeSpan retryDelay = getRetryDelayAfterFailedAttempts(failedAttemptCount);
+            ReportStatus($"Voice model failed to load: {loadException.Message} Trying again in {FormatRetryDelay(retryDelay)}.");
+            try
+            {
+                await Task.WhenAny(Task.Delay(retryDelay, cancellationToken), retryLoadNowSignal.Task);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+        }
+    }
+
+    private static string FormatRetryDelay(TimeSpan retryDelay) =>
+        retryDelay >= TimeSpan.FromMinutes(1) ? $"{retryDelay.TotalMinutes:0} min" : $"{Math.Max(1, retryDelay.TotalSeconds):0} s";
+
+    /// <returns>Null when the model is loaded (or loading was cancelled), otherwise why it failed.</returns>
+    private async Task<Exception?> TryLoadModelAsync(CancellationToken cancellationToken)
+    {
+        KokoroInference? kokoroInference = null;
+        try
+        {
+            string modelFilePath = await ensureModelDownloadedAsync(
+                downloadPercent => ReportStatus($"Downloading voice model: {downloadPercent}%"), cancellationToken);
+            ReportStatus("Loading voice model...");
+            Stopwatch loadStopwatch = Stopwatch.StartNew();
+            kokoroInference = await Task.Run(() => loadKokoroInference(modelFilePath), cancellationToken);
+            KokoroInference warmUpInference = kokoroInference;
+            // The first synthesis also loads the phonemizer's dictionaries (measured 3.5 s to first sound cold against
+            // ~2 s warm), so pay that now rather than on the first reply. Skipped when no voice files were found.
+            if (selectedKokoroVoice is { } warmUpVoice)
+            {
+                await RunExclusiveInferenceAsync(() => warmUpInference.Synthesize(
+                    Tokenizer.Tokenize("Warming up the voice.", KokoroLangCodeHelper.GetLangCode(warmUpVoice)), warmUpVoice.Features),
+                    cancellationToken);
+            }
+
+            loadedKokoroInference = kokoroInference;
+            Console.WriteLine($"Kokoro loaded and warmed up in {loadStopwatch.ElapsedMilliseconds} ms from {modelFilePath}");
+            if (selectedKokoroVoice is not null)
+            {
+                ReportStatus("Voice model ready.");
+            }
+
+            return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"Kokoro failed to load: {exception}");
+            // Loaded but failed to warm up: free it rather than keep a model that may not work (the next attempt reloads).
+            if (kokoroInference is not null && loadedKokoroInference != kokoroInference)
+            {
+                kokoroInference.Release();
+            }
+
+            return exception;
+        }
+    }
+
+    private void ReportStatus(string status)
+    {
+        currentStatus = status;
+        StatusChanged?.Invoke(status);
+    }
+
+    public void Dispose()
+    {
+        disposalCancellation.Cancel();
+        StopSpeaking();
+        fallbackSpeaker.Dispose();
+        // Released only when no synthesis is mid-run (an ONNX run can't be interrupted); at exit the OS frees it otherwise.
+        if (loadedKokoroInference is { } kokoroInference && inferenceLock.Wait(TimeSpan.FromSeconds(2)))
+        {
+            kokoroInference.Release();
+        }
+    }
+}
