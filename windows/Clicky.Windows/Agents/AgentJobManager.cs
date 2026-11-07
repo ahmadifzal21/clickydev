@@ -213,7 +213,9 @@ internal sealed partial class AgentJobManager(AgentSettings settings, Func<Claud
     }
 
     internal const string JobAllowedTools = "Read(./**),Edit(./**),Write(./**),WebSearch";
-    internal const string JobDeniedTools = "Bash,PowerShell,WebFetch";
+    // Reads outside the folder aren't pre-approved, and print mode denies anything that isn't (probed). Glob and Grep, which
+    // take no path rule here, are denied outright.
+    internal const string JobDeniedTools = "Bash,PowerShell,WebFetch,Glob,Grep";
 
     internal static ProcessStartInfo BuildClaudeStartInfo(ClaudeCodeCliBackendSettings claude, AgentSettings agentSettings, AgentJob job,
         string message, string? resumeSessionId)

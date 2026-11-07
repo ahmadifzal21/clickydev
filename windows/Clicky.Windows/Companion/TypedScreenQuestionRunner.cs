@@ -202,8 +202,15 @@ internal sealed class TypedScreenQuestionRunner(
         bool armedATargetThisTurn = false;
         int armedTargetLine = -1;
         // Untrusted text reached the model this turn (a page's text, web results): side effects need the user's own click.
-        bool turnHasUntrustedText = untrustedTextAtVersion is { } taintedVersion
-            && conversationHistory.Version - taintedVersion < CompanionConversationHistory.MaximumExchangeCount;
+        // The tainted exchange is recorded as version+1; it stays in the history for 10 exchanges and its seen note in [earlier]
+        // for 12 more. When that has passed, the live Claude session (which still holds the text) is replaced too.
+        const int untrustedWindow = CompanionConversationHistory.MaximumExchangeCount + CompanionConversationHistory.MaximumEarlierNotes;
+        bool turnHasUntrustedText = untrustedTextAtVersion is { } taintedVersion && conversationHistory.Version - taintedVersion <= untrustedWindow;
+        if (untrustedTextAtVersion is not null && !turnHasUntrustedText)
+        {
+            untrustedTextAtVersion = null;
+            chatBackendRouter.Shutdown(); // Starts the next turn from the text history, which no longer holds the old page or web text.
+        }
         bool turnReadUntrustedText = false; // This turn itself read a page or the web: the gate restarts from this exchange.
         (CompanionChatRequest Request, RoutedChatResponse Response)? turnToSave = null;
         Action logFirstSound = () => TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.SpeechStarted);
@@ -282,7 +289,12 @@ internal sealed class TypedScreenQuestionRunner(
                     else ResultCardWindow.Show($"Start a background job: {jobTitle}?", jobTask, "Start", () => AgentJobs.Start(jobTitle, jobTask));
                     break;
                 case "agent_send" when call.Arguments.OfType<string>().ToArray() is [var sendJobId, var jobMessage, ..]:
-                    if (AgentJobs?.Send(sendJobId, jobMessage) != true) Trace.WriteLine($"agent_send() found no job {sendJobId}.");
+                    // Like starting one: a message to a running job goes only from the user's own click.
+                    if (AgentJobs is null) Trace.WriteLine("agent_send() skipped: background jobs aren't set up.");
+                    else ResultCardWindow.Show($"Send this to job {sendJobId}?", jobMessage, "Send", () =>
+                    {
+                        if (!AgentJobs.Send(sendJobId, jobMessage)) Trace.WriteLine($"agent_send() found no job {sendJobId}.");
+                    });
                     break;
                 case "agent_stop" when call.Text(0) is { } stopJobId:
                     if (AgentJobs?.Stop(stopJobId) != true) Trace.WriteLine($"agent_stop() found no running job {stopJobId}.");
@@ -323,7 +335,12 @@ internal sealed class TypedScreenQuestionRunner(
                 ?? CompanionScreenCaptureUtility.CaptureAllScreensAsJpegAsync(displayMonitorCatalog.Monitors, cancellationToken))
                 .WaitAsync(cancellationToken);
             TurnEventLog.Append(thisTurnId, CompanionTurnEventKind.CaptureDone);
-            if (highlight is not null) (screenCaptures, highlightLine) = await ApplyHighlightAsync(screenCaptures, highlight);
+            if (highlight is not null)
+            {
+                (screenCaptures, highlightLine) = await ApplyHighlightAsync(screenCaptures, highlight);
+                // Text read out of another app is untrusted like a page's.
+                if (highlightLine?.Contains("; text there:", StringComparison.Ordinal) == true) turnHasUntrustedText = turnReadUntrustedText = true;
+            }
 
             Task playingTheReply = PlayTheReplyAsItArrivesAsync();
             RoutedChatResponse routedResponse;
